@@ -3,7 +3,7 @@ import CheckIn from "./CheckIn";
 import BarFeed from "./BarFeed"; // if you're using the feed
 import BulkBarUploader from "./BulkBarUploader"; // if using uploader
 import HotTonight from "./HotTonight";
-
+import MapView from "./MapView";
 
 function App() {
   return (
@@ -26,8 +26,9 @@ function App() {
         <Route path="/checkin" element={<CheckIn />} />
         <Route path="/bar/:barName" element={<BarFeed />} />
         <Route path="/admin" element={<BulkBarUploader />} />
+        <Route path="/upload-bars" element={<BulkBarUploader />} />
         <Route path="/hot" element={<HotTonight />} />
-
+        <Route path="/map" element={<MapView />} />
       </Routes>
     </Router>
   );

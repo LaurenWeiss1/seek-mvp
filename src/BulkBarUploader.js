@@ -9,16 +9,18 @@ function BulkBarUploader() {
   const handleUpload = async () => {
     const lines = input.split("\n").filter(Boolean);
     const entries = lines.map((line) => {
-      const [name, city] = line.split(",").map((s) => s.trim());
-      return { name, city };
+      const [name, city, latitude, longitude] = line.split(",").map((s) => s.trim());
+      return { name, city, latitude, longitude };
     });
 
     try {
       for (const entry of entries) {
-        if (entry.name && entry.city) {
+        if (entry.name && entry.city && entry.latitude && entry.longitude) {
           await addDoc(collection(db, "bars"), {
             name: entry.name,
             city: entry.city,
+            latitude: parseFloat(entry.latitude),
+            longitude: parseFloat(entry.longitude),
             createdAt: serverTimestamp(),
           });
         }
@@ -38,7 +40,7 @@ function BulkBarUploader() {
         rows={10}
         value={input}
         onChange={(e) => setInput(e.target.value)}
-        placeholder="One bar per line, format: Bar Name, City"
+        placeholder="One bar per line, format: Bar Name, City, Latitude, Longitude"
         className="w-full border p-2 mb-3"
       ></textarea>
       <button onClick={handleUpload} className="bg-blue-600 text-white px-4 py-2 rounded">

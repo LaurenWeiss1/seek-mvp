@@ -103,169 +103,146 @@ function CheckIn() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const finalBar = (barNotListed ? customBar : formData.bar).trim();
-    console.log("Submitting check-in for bar:", finalBar);
-
+    console.log("📤 Attempting to check in to:", finalBar);
+  
     try {
-      await addDoc(collection(db, "checkins"), {
+      const checkinData = {
         ...formData,
         bar: finalBar,
-        timestamp: serverTimestamp()
-      });
-
+        timestamp: serverTimestamp(),
+      };
+  
+      console.log("📦 Data being sent:", checkinData);
+  
+      await addDoc(collection(db, "checkins"), checkinData);
+      console.log("✅ Check-in saved to Firestore");
+  
       localStorage.setItem("viewerInfo", JSON.stringify(formData));
-
-
-
+  
       if (barNotListed && customBar) {
         await addDoc(collection(db, "bars"), {
           name: customBar.trim(),
           city: formData.city,
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
         });
       }
-
+  
       navigate(`/bar/${finalBar}`);
     } catch (err) {
-      console.error("Error submitting form:", err);
+      console.error("❌ Error submitting form:", err);
     }
   };
+  
 
   return (
-    <div className="p-4 max-w-md mx-auto">
-      <h2 className="text-2xl font-bold mb-4">Check In</h2>
-      <form onSubmit={handleSubmit}>
-        <label>Name (optional):</label><br />
-        <input name="name" value={formData.name} onChange={handleChange} className="w-full border p-2 mb-3" /><br />
+    <div className="p-4 max-w-2xl mx-auto">
+      <h2 className="text-3xl font-bold mb-6 text-center">Check In</h2>
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="bg-white p-4 rounded-xl shadow border">
+          <h3 className="text-lg font-semibold mb-3">Your Info</h3>
 
-        <label>Age:</label><br />
-        <input name="age" value={formData.age} onChange={handleChange} required className="w-full border p-2 mb-3" /><br />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <input name="name" value={formData.name} onChange={handleChange} placeholder="Name (optional)" className="border p-2 rounded w-full" />
+            <input name="age" value={formData.age} onChange={handleChange} placeholder="Age" required className="border p-2 rounded w-full" />
+          </div>
 
-        <label className="font-semibold">Gender:</label>
-        <div className="mb-3">
-          {genderOptions.map((option) => (
-            <label key={option} className="block">
-              <input
-                type="radio"
-                name="gender"
-                value={option}
-                checked={formData.gender === option}
-                onChange={handleChange}
-                className="mr-2"
-              />
-              {option}
-            </label>
-          ))}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <select name="gender" value={formData.gender} onChange={handleChange} className="border p-2 rounded">
+              <option value="">Gender</option>
+              {genderOptions.map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
+
+            <select name="sexuality" value={formData.sexuality} onChange={handleChange} className="border p-2 rounded">
+              <option value="">Sexuality</option>
+              {sexualityOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          <input name="hometown" value={formData.hometown} onChange={handleChange} placeholder="Hometown" className="border p-2 rounded w-full mt-4" />
+          <input name="homeState" value={formData.homeState} onChange={handleChange} placeholder="Home State" className="border p-2 rounded w-full mt-2" />
+          <input name="homeCountry" value={formData.homeCountry} onChange={handleChange} placeholder="Home Country" className="border p-2 rounded w-full mt-2" />
+          <input name="college" value={formData.college} onChange={handleChange} placeholder="College / University" className="border p-2 rounded w-full mt-2" />
         </div>
 
-        <label className="font-semibold">Sexuality:</label>
-        <div className="mb-3">
-          {sexualityOptions.map((option) => (
-            <label key={option} className="block">
+        <div className="bg-white p-4 rounded-xl shadow border">
+          <h3 className="text-lg font-semibold mb-3">Where You're At</h3>
+
+          <select name="city" value={formData.city} onChange={handleChange} className="border p-2 rounded w-full">
+            <option value="">Select City</option>
+            {cityOptions.map((city) => <option key={city} value={city}>{city}</option>)}
+          </select>
+
+          {formData.city && (
+            <>
               <input
-                type="radio"
-                name="sexuality"
-                value={option}
-                checked={formData.sexuality === option}
+                type="text"
+                name="bar"
+                value={formData.bar}
                 onChange={handleChange}
-                className="mr-2"
+                onFocus={() => {
+                  setFilteredBars(allBars);
+                  setShowSuggestions(true);
+                }}
+                autoComplete="off"
+                disabled={barNotListed}
+                required={!barNotListed}
+                placeholder="Bar you're at"
+                className="border p-2 rounded w-full mt-4"
               />
-              {option}
-            </label>
-          ))}
-        </div>
+              {showSuggestions && filteredBars.length > 0 && !barNotListed && (
+                <ul className="border bg-white max-h-40 overflow-y-scroll text-sm rounded shadow mt-1">
+                  {filteredBars.map((bar, index) => (
+                    <li
+                      key={index}
+                      onMouseDown={() => handleBarSelect(bar)}
+                      className="p-2 hover:bg-gray-100 cursor-pointer"
+                    >
+                      {bar}
+                    </li>
+                  ))}
+                </ul>
+              )}
 
-        <label>Hometown:</label><br />
-        <input name="hometown" value={formData.hometown} onChange={handleChange} className="w-full border p-2 mb-3" /><br />
+              <div className="mt-3">
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={barNotListed}
+                    onChange={(e) => setBarNotListed(e.target.checked)}
+                    className="mr-2"
+                  />
+                  Bar not listed
+                </label>
+              </div>
 
-        <label>Home State:</label><br />
-        <input name="homeState" value={formData.homeState} onChange={handleChange} className="w-full border p-2 mb-3" /><br />
-
-        <label>Home Country:</label><br />
-        <input name="homeCountry" value={formData.homeCountry} onChange={handleChange} className="w-full border p-2 mb-3" /><br />
-
-        <label>College / University:</label><br />
-        <input name="college" value={formData.college} onChange={handleChange} className="w-full border p-2 mb-3" /><br />
-
-        <label>City:</label><br />
-        <select name="city" value={formData.city} onChange={handleChange} className="w-full border p-2 mb-3" required>
-          <option value="">Select a city</option>
-          {cityOptions.map((city, idx) => (
-            <option key={idx} value={city}>{city}</option>
-          ))}
-        </select>
-
-        {formData.city && (
-          <>
-            <label>Bar you're at:</label><br />
-            <input
-              type="text"
-              name="bar"
-              value={formData.bar}
-              onChange={handleChange}
-              onFocus={() => {
-                setFilteredBars(allBars);
-                setShowSuggestions(true);
-              }}
-              autoComplete="off"
-              disabled={barNotListed}
-              required={!barNotListed}
-              className="w-full border p-2"
-            />
-            {showSuggestions && filteredBars.length > 0 && !barNotListed && (
-              <ul className="border bg-white max-h-40 overflow-y-scroll text-sm">
-                {filteredBars.map((bar, index) => (
-                  <li
-                    key={index}
-                    onMouseDown={() => handleBarSelect(bar)}
-                    className="p-2 hover:bg-gray-100 cursor-pointer"
-                  >
-                    {bar}
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            <div className="mt-2">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={barNotListed}
-                  onChange={(e) => setBarNotListed(e.target.checked)}
-                /> {" "}Bar not listed
-              </label>
-            </div>
-
-            {barNotListed && (
-              <div className="mt-2">
-                <label>Enter bar name here:</label><br />
+              {barNotListed && (
                 <input
                   name="customBar"
                   value={customBar}
                   onChange={(e) => setCustomBar(e.target.value)}
                   placeholder="Enter bar name here"
                   required
-                  className="w-full border p-2"
+                  className="w-full border p-2 rounded mt-2"
                 />
-              </div>
-            )}
-          </>
-        )}
-
-        <div className="mt-4">
-          <label>
-            <input
-              type="checkbox"
-              name="openToChat"
-              checked={formData.openToChat}
-              onChange={handleChange}
-              className="mr-2"
-            />
-            I'm open to chat 👋
-          </label>
+              )}
+            </>
+          )}
         </div>
 
-        <br />
-        <button type="submit" className="mt-4 w-full bg-blue-500 text-white p-2 rounded">Check In</button>
+        <div className="flex items-center">
+          <input
+            type="checkbox"
+            name="openToChat"
+            checked={formData.openToChat}
+            onChange={handleChange}
+            className="mr-2"
+          />
+          <label className="text-sm">I'm open to chat 👋</label>
+        </div>
+
+        <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow">
+          Check In
+        </button>
       </form>
     </div>
   );

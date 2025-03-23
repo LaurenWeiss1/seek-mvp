@@ -1,14 +1,33 @@
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
 import CheckIn from "./CheckIn";
-// import Feed or other pages as needed
+import BarFeed from "./BarFeed"; // if you're using the feed
+import BulkBarUploader from "./BulkBarUploader"; // if using uploader
+import HotTonight from "./HotTonight";
+
 
 function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<div style={{ padding: 40 }}><h1>Welcome to Seek</h1><p><a href="/checkin">Go to Check-In →</a></p></div>} />
+        <Route
+          path="/"
+          element={
+            <div className="text-center p-8">
+              <h1 className="text-3xl font-bold mb-4">Welcome to Seek</h1>
+              <Link
+                to="/checkin"
+                className="inline-block bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600"
+              >
+                Check In
+              </Link>
+            </div>
+          }
+        />
         <Route path="/checkin" element={<CheckIn />} />
-        {/* add more routes here like <Route path="/bar/:barName" element={<BarFeed />} /> */}
+        <Route path="/bar/:barName" element={<BarFeed />} />
+        <Route path="/admin" element={<BulkBarUploader />} />
+        <Route path="/hot" element={<HotTonight />} />
+
       </Routes>
     </Router>
   );

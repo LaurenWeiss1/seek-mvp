@@ -49,7 +49,8 @@ function CheckIn() {
     homeCountry: "",
     college: "",
     city: "",
-    bar: ""
+    bar: "",
+    openToChat: false
   });
 
   const [customBar, setCustomBar] = useState("");
@@ -74,8 +75,11 @@ function CheckIn() {
   }, [formData.city]);
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    const { name, value, type, checked } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: type === "checkbox" ? checked : value
+    }));
 
     if (name === "city") {
       setFormData((prev) => ({ ...prev, city: value, bar: "" }));
@@ -98,7 +102,8 @@ function CheckIn() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const finalBar = barNotListed ? customBar : formData.bar;
+    const finalBar = (barNotListed ? customBar : formData.bar).trim();
+    console.log("Submitting check-in for bar:", finalBar);
 
     try {
       await addDoc(collection(db, "checkins"), {
@@ -107,9 +112,13 @@ function CheckIn() {
         timestamp: serverTimestamp()
       });
 
+      localStorage.setItem("viewerInfo", JSON.stringify(formData));
+
+
+
       if (barNotListed && customBar) {
         await addDoc(collection(db, "bars"), {
-          name: customBar,
+          name: customBar.trim(),
           city: formData.city,
           createdAt: serverTimestamp()
         });
@@ -241,6 +250,19 @@ function CheckIn() {
             )}
           </>
         )}
+
+        <div className="mt-4">
+          <label>
+            <input
+              type="checkbox"
+              name="openToChat"
+              checked={formData.openToChat}
+              onChange={handleChange}
+              className="mr-2"
+            />
+            I'm open to chat 👋
+          </label>
+        </div>
 
         <br />
         <button type="submit" className="mt-4 w-full bg-blue-500 text-white p-2 rounded">Check In</button>

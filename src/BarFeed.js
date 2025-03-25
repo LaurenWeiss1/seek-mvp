@@ -41,34 +41,45 @@ function BarFeed() {
   }, [barName]);
 
   return (
-    <div className="max-w-2xl mx-auto p-4">
-      <h2 className="text-2xl font-bold mb-4 text-center">👥 People at {barName}</h2>
+    <div className="max-w-3xl mx-auto p-6">
+      <h2 className="text-3xl font-bold mb-6 text-center">👥 People at {barName}</h2>
 
       {checkins.length === 0 ? (
         <p className="text-center text-gray-500">
           No one here yet. Be the first to check in!
         </p>
       ) : (
-        <ul className="space-y-4">
+        <ul className="grid gap-4">
           {checkins.map((person, idx) => (
-            <li key={person.id || idx} className="border p-4 rounded shadow-sm bg-white">
-              <div className="font-semibold text-lg">
-                {person.name || "Someone"}{person.age ? `, ${person.age}` : ""}
+            <li
+              key={person.id || idx}
+              className="bg-white border rounded-2xl p-5 shadow hover:shadow-md transition-all"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xl font-semibold">
+                  {person.name || "Someone"}{person.age ? `, ${person.age}` : ""}
+                </h3>
+                {person.openToChat && (
+                  <span className="text-sm text-green-600 font-medium">👋 Open to Chat</span>
+                )}
               </div>
-              <div className="text-sm text-gray-600">
+
+              <div className="text-sm text-gray-700 mb-1">
                 {person.gender} • {person.sexuality}
               </div>
-              <div className="text-sm">
-                from {person.hometown}, {person.homeState} ({person.homeCountry})
+
+              <div className="text-sm text-gray-600">
+                From {person.hometown}, {person.homeState} ({person.homeCountry})
               </div>
-              <div className="text-sm italic text-gray-500">
-                {person.college && `Goes to ${person.college}`}
-              </div>
-              {person.openToChat && (
-                <div className="mt-2 text-green-600 font-medium">👋 Open to Chat</div>
+
+              {person.college && (
+                <div className="text-sm italic text-gray-500">
+                  Goes to {person.college}
+                </div>
               )}
+
               {person.timestamp && (
-                <div className="text-xs text-gray-500 mt-1">
+                <div className="text-xs text-gray-400 mt-2">
                   Checked in {timeAgo(person.timestamp)}
                 </div>
               )}

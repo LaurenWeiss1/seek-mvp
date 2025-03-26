@@ -4,49 +4,101 @@ import { db } from "./firebase";
 import {
   collection,
   addDoc,
-  query,
-  where,
-  getDocs,
   serverTimestamp
 } from "firebase/firestore";
-import useAutocompleteData from "./useAutocompleteData";
+import Papa from "papaparse";
 
 const genderOptions = [
-  "Man", "Woman", "Transgender", "Non-binary/non-conforming", "Prefer not to respond"
+  "Man",
+  "Woman",
+  "Transgender",
+  "Non-binary/non-conforming",
+  "Prefer not to respond"
 ];
 
 const sexualityOptions = [
-  "Asexual", "Bisexual", "Gay", "Heterosexual (straight)",
-  "Lesbian", "Pansexual", "Queer", "Questioning", "Prefer not to specify"
+  "Asexual",
+  "Bisexual",
+  "Gay",
+  "Heterosexual (straight)",
+  "Lesbian",
+  "Pansexual",
+  "Queer",
+  "Questioning",
+  "Prefer not to specify"
 ];
 
-const cityOptions = ["Berkeley", "San Francisco", "New York", "Los Angeles"];
+const countries = [
+  "Canada",
+  "Mexico",
+  "United Kingdom",
+  "Germany",
+  "India",
+  "China",
+  "Japan",
+  "Australia",
+  "France",
+  "Other"
+];
+
+const allUSStates = [
+  "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware",
+  "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky",
+  "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi",
+  "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico",
+  "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania",
+  "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont",
+  "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"
+];
 
 function CheckIn() {
   const navigate = useNavigate();
-  const sheetUrl = "YOUR_CSV_LINK_HERE";
-  const { hometowns, states, countries, colleges } = useAutocompleteData(sheetUrl);
-
   const [formData, setFormData] = useState({
-    name: "", age: "", gender: "", sexuality: "", hometown: "",
-    homeState: "", homeCountry: "", college: "", city: "", bar: "",
+    name: "",
+    age: "",
+    gender: "",
+    sexuality: "",
+    homeState: "",
+    homeCountry: "",
+    college: "",
+    currentState: "",
+    city: "",
+    bar: "",
     openToChat: false
   });
 
-  const [allBars, setAllBars] = useState([]);
+  const [cities, setCities] = useState([]);
+  const [bars, setBars] = useState([]);
+  const [colleges, setColleges] = useState([]);
   const [barNotListed, setBarNotListed] = useState(false);
   const [customBar, setCustomBar] = useState("");
 
   useEffect(() => {
-    const fetchBars = async () => {
-      if (!formData.city) return;
-      const q = query(collection(db, "bars"), where("city", "==", formData.city));
-      const snapshot = await getDocs(q);
-      const barsInCity = snapshot.docs.map(doc => doc.data().name);
-      setAllBars(barsInCity);
-    };
-    fetchBars();
-  }, [formData.city]);
+    const stateCitySheet = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRmNCSLKaFGoRDnnOI_HkZ1pPYAHBzTx2KtsPFiQl347KYxbm-iy5Gjl5XjVuR7-00qW12_n7h-ovkI/pub?output=csv";
+    const collegeSheet = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRmNCSLKaFGoRDnnOI_HkZ1pPYAHBzTx2KtsPFiQl347KYxbm-iy5Gjl5XjVuR7-00qW12_n7h-ovkI/pub?gid=123456789&single=true&output=csv"; // replace gid with actual tab gid
+
+    Papa.parse(stateCitySheet, {
+      download: true,
+      header: true,
+      complete: (results) => {
+        const cityList = results.data.map(row => ({ name: row.city, state: row.state }));
+        const barList = results.data.flatMap(row =>
+          row.bars ? row.bars.split(";").map(bar => ({ name: bar.trim(), city: row.city })) : []
+        );
+        setCities(cityList);
+        setBars(barList);
+      }
+    });
+
+    Papa.parse(collegeSheet, {
+      download: true,
+      header: true,
+      complete: (results) => {
+        const collegeList = results.data.map(row => row.college).filter(Boolean);
+        setColleges(collegeList);
+      }
+    });
+  }, []);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -63,7 +115,7 @@ function CheckIn() {
       await addDoc(collection(db, "checkins"), {
         ...formData,
         bar: finalBar,
-        timestamp: serverTimestamp()
+        timestamp: serverTimestamp(),
       });
 
       if (barNotListed && customBar) {
@@ -80,15 +132,19 @@ function CheckIn() {
     }
   };
 
+  const filteredCities = cities.filter(c => c.state === formData.currentState);
+  const filteredBars = bars.filter(b => b.city === formData.city);
+  const filteredColleges = colleges.filter(col => col.toLowerCase().includes(formData.college.toLowerCase()));
+
   return (
     <form onSubmit={handleSubmit} className="bg-[#111827] text-white max-w-xl mx-auto p-6 space-y-6">
-      <h1 className="text-4xl font-bold text-center mb-4">Welcome to Seek 👋</h1>
+      <h1 className="text-4xl font-bold text-center">Welcome to Seek <span className="inline-block">👋</span></h1>
 
-      <input name="age" value={formData.age} onChange={handleChange} placeholder="Enter your age" required className="w-full p-2 rounded bg-[#1F2937] border border-gray-600" />
+      <input name="age" value={formData.age} onChange={handleChange} placeholder="Enter your age" className="w-full p-2 rounded bg-[#1F2937] border border-gray-600" required />
 
       <div>
-        <label className="block mb-2 mt-4">Gender</label>
-        <div className="space-y-2">
+        <label className="block mb-2">Gender</label>
+        <div className="space-y-1">
           {genderOptions.map(g => (
             <label key={g} className="block">
               <input type="radio" name="gender" value={g} checked={formData.gender === g} onChange={handleChange} className="mr-2" />
@@ -99,8 +155,8 @@ function CheckIn() {
       </div>
 
       <div>
-        <label className="block mb-2 mt-4">Sexuality</label>
-        <div className="space-y-2">
+        <label className="block mb-2">Sexuality</label>
+        <div className="space-y-1">
           {sexualityOptions.map(s => (
             <label key={s} className="block">
               <input type="radio" name="sexuality" value={s} checked={formData.sexuality === s} onChange={handleChange} className="mr-2" />
@@ -110,21 +166,55 @@ function CheckIn() {
         </div>
       </div>
 
-      <input name="hometown" value={formData.hometown} onChange={handleChange} placeholder="Hometown" className="w-full p-2 rounded bg-[#1F2937] border border-gray-600" />
-      <input name="homeState" value={formData.homeState} onChange={handleChange} placeholder="Home State" className="w-full p-2 rounded bg-[#1F2937] border border-gray-600" />
-      <input name="homeCountry" value={formData.homeCountry} onChange={handleChange} placeholder="Home Country" className="w-full p-2 rounded bg-[#1F2937] border border-gray-600" />
-      <input name="college" value={formData.college} onChange={handleChange} placeholder="College / University" className="w-full p-2 rounded bg-[#1F2937] border border-gray-600" />
-
-      <select name="city" value={formData.city} onChange={handleChange} className="w-full p-2 rounded bg-white text-black">
-        <option value="">Select a city</option>
-        {cityOptions.map(c => <option key={c} value={c}>{c}</option>)}
+      <h2 className="text-lg font-semibold pt-4">Where are you from?</h2>
+      <select name="homeState" value={formData.homeState} onChange={handleChange} className="w-full p-2 rounded bg-white text-black">
+        <option value="">Select your home state</option>
+        <option value="Not from the U.S.">I'm not from the U.S.</option>
+        {allUSStates.map(state => <option key={state} value={state}>{state}</option>)}
       </select>
+
+      {formData.homeState === "Not from the U.S." && (
+        <select name="homeCountry" value={formData.homeCountry} onChange={handleChange} className="w-full p-2 rounded bg-white text-black">
+          <option value="">Select your country</option>
+          {countries.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      )}
+
+      <h2 className="text-lg font-semibold pt-4">Where did you go to college/university?</h2>
+      <input
+        name="college"
+        value={formData.college}
+        onChange={handleChange}
+        placeholder="Enter your college/university"
+        className="w-full p-2 rounded bg-[#1F2937] border border-gray-600"
+        list="college-options"
+      />
+      <datalist id="college-options">
+        {filteredColleges.map(col => <option key={col} value={col} />)}
+      </datalist>
+
+      <h2 className="text-lg font-semibold pt-4">Which state are you currently in?</h2>
+      <select name="currentState" value={formData.currentState} onChange={handleChange} className="w-full p-2 rounded bg-white text-black">
+        <option value="">Select a state</option>
+        {allUSStates.map(state => <option key={state} value={state}>{state}</option>)}
+      </select>
+
+      {formData.currentState && (
+        <>
+          <h2 className="text-lg font-semibold pt-4">Which city are you currently in?</h2>
+          <select name="city" value={formData.city} onChange={handleChange} className="w-full p-2 rounded bg-white text-black">
+            <option value="">Select a city</option>
+            {filteredCities.map(city => <option key={city.name} value={city.name}>{city.name}</option>)}
+          </select>
+        </>
+      )}
 
       {formData.city && (
         <>
+          <h2 className="text-lg font-semibold pt-4">Which bar are you at?</h2>
           <select name="bar" value={formData.bar} onChange={handleChange} disabled={barNotListed} className="w-full p-2 rounded bg-white text-black">
             <option value="">Select a bar</option>
-            {allBars.map(b => <option key={b} value={b}>{b}</option>)}
+            {filteredBars.map(bar => <option key={bar.name} value={bar.name}>{bar.name}</option>)}
           </select>
 
           <label className="block mt-2">
@@ -150,7 +240,7 @@ function CheckIn() {
         </>
       )}
 
-      <label className="block mt-2">
+      <label className="block">
         <input
           type="checkbox"
           name="openToChat"
@@ -161,7 +251,7 @@ function CheckIn() {
         I'm open to chat 👋
       </label>
 
-      <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded mt-4">Submit</button>
+      <button type="submit" className="w-full bg-gray-700 text-white py-2 rounded mt-4 hover:bg-gray-600">Submit</button>
     </form>
   );
 }

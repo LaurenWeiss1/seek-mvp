@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { db } from "./firebase";
 import {
@@ -72,19 +72,25 @@ function CheckIn() {
   const [colleges, setColleges] = useState([]);
   const [barNotListed, setBarNotListed] = useState(false);
   const [customBar, setCustomBar] = useState("");
+  const [filteredColleges, setFilteredColleges] = useState([]);
+  const [filteredBars, setFilteredBars] = useState([]);
+  const debounceRef = useRef(null);
 
   useEffect(() => {
-    const stateCitySheet = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRmNCSLKaFGoRDnnOI_HkZ1pPYAHBzTx2KtsPFiQl347KYxbm-iy5Gjl5XjVuR7-00qW12_n7h-ovkI/pub?output=csv";
+    const barSheet = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRmNCSLKaFGoRDnnOI_HkZ1pPYAHBzTx2KtsPFiQl347KYxbm-iy5Gjl5XjVuR7-00qW12_n7h-ovkI/pub?output=csv";
     const collegeSheet = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRmNCSLKaFGoRDnnOI_HkZ1pPYAHBzTx2KtsPFiQl347KYxbm-iy5Gjl5XjVuR7-00qW12_n7h-ovkI/pub?gid=576309257&single=true&output=csv";
 
-    Papa.parse(stateCitySheet, {
+    Papa.parse(barSheet, {
       download: true,
       header: true,
       complete: (results) => {
         const cityList = results.data.map(row => ({ name: row.city, state: row.state }));
-        const barList = results.data.flatMap(row =>
-          row.bars ? row.bars.split(";").map(bar => ({ name: bar.trim(), city: row.city })) : []
-        );
+        const barList = results.data.map(row => ({
+          name: row.bar,
+          city: row.city,
+          latitude: parseFloat(row.latitude),
+          longitude: parseFloat(row.longitude)
+        })).filter(b => b.name && b.city);
         setCities(cityList);
         setBars(barList);
       }
@@ -106,6 +112,19 @@ function CheckIn() {
       ...prev,
       [name]: type === "checkbox" ? checked : value
     }));
+
+    if (name === "college") {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        const filtered = colleges.filter(c => c.toLowerCase().includes(value.toLowerCase())).slice(0, 10);
+        setFilteredColleges(filtered);
+      }, 250);
+    }
+
+    if (name === "bar") {
+      const filtered = bars.filter(b => b.city === formData.city && b.name.toLowerCase().includes(value.toLowerCase())).slice(0, 10);
+      setFilteredBars(filtered);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -133,8 +152,7 @@ function CheckIn() {
   };
 
   const filteredCities = cities.filter(c => c.state === formData.currentState);
-  const filteredBars = bars.filter(b => b.city === formData.city);
-  const filteredColleges = colleges.filter(col => col.toLowerCase().includes(formData.college.toLowerCase()));
+  const displayBars = filteredBars.length > 0 ? filteredBars : bars.filter(b => b.city === formData.city);
 
   return (
     <form onSubmit={handleSubmit} className="bg-[#111827] text-white max-w-xl mx-auto p-6 space-y-6">
@@ -212,10 +230,19 @@ function CheckIn() {
       {formData.city && (
         <>
           <h2 className="text-lg font-semibold pt-4">Which bar are you at?</h2>
-          <select name="bar" value={formData.bar} onChange={handleChange} disabled={barNotListed} className="w-full p-2 rounded bg-white text-black">
-            <option value="">Select a bar</option>
-            {filteredBars.map(bar => <option key={bar.name} value={bar.name}>{bar.name}</option>)}
-          </select>
+          <input
+            type="text"
+            name="bar"
+            value={formData.bar}
+            onChange={handleChange}
+            placeholder="Start typing to find your bar"
+            disabled={barNotListed}
+            className="w-full p-2 rounded bg-white text-black"
+            list="bar-options"
+          />
+          <datalist id="bar-options">
+            {displayBars.map(bar => <option key={bar.name} value={bar.name} />)}
+          </datalist>
 
           <label className="block mt-2">
             <input

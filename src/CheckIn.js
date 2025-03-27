@@ -17,13 +17,13 @@ const genderOptions = [
 ];
 
 const sexualityOptions = [
-  "Asexual",
-  "Bisexual",
-  "Gay",
   "Heterosexual (straight)",
+  "Gay",
   "Lesbian",
-  "Pansexual",
+  "Bisexual",
   "Queer",
+  "Asexual",
+  "Pansexual",
   "Questioning",
   "Prefer not to specify"
 ];
@@ -76,8 +76,6 @@ function CheckIn() {
   useEffect(() => {
     const stateCitySheet = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRmNCSLKaFGoRDnnOI_HkZ1pPYAHBzTx2KtsPFiQl347KYxbm-iy5Gjl5XjVuR7-00qW12_n7h-ovkI/pub?output=csv";
     const collegeSheet = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRmNCSLKaFGoRDnnOI_HkZ1pPYAHBzTx2KtsPFiQl347KYxbm-iy5Gjl5XjVuR7-00qW12_n7h-ovkI/pub?gid=576309257&single=true&output=csv";
-
-
 
     Papa.parse(stateCitySheet, {
       download: true,

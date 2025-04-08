@@ -1,25 +1,29 @@
-import React from "react";
-import { seedTestCheckins } from "./SeedTestUsers";
+// src/TestSeed.js
+import React from 'react';
+import { seedTestCheckins } from './seedTestCheckins';
 
-export default function TestSeed() {
+const TestSeed = () => {
   const handleSeed = async () => {
     try {
       await seedTestCheckins();
-      alert("✅ Seeded test check-ins!");
+      alert('✅ Dummy check-ins added!');
     } catch (err) {
-      console.error("Seeding failed", err);
-      alert("❌ Failed to seed data.");
+      console.error('Seeding failed:', err);
+      alert('❌ Failed to seed check-ins');
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-black text-white">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white">
+      <h1 className="text-3xl font-bold mb-4">Seed Dummy Check-Ins</h1>
       <button
         onClick={handleSeed}
-        className="px-6 py-3 bg-green-600 hover:bg-green-700 rounded-xl font-semibold shadow"
+        className="px-6 py-2 bg-blue-600 hover:bg-blue-500 rounded shadow"
       >
-        Seed Test Check-Ins
+        Seed Check-Ins
       </button>
     </div>
   );
-}
+};
+
+export default TestSeed;

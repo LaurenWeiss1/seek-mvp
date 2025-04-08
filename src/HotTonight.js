@@ -1,104 +1,107 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { db } from "./firebase";
-import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  Timestamp,
-} from "firebase/firestore";
+// HotTonight.js — now using bar data from Google Sheet
+import React, { useEffect, useState } from 'react';
+import { db, auth } from './firebase';
+import { onSnapshot, collection, getDoc, doc } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
+import Papa from 'papaparse';
 
-const cityOptions = ["Berkeley", "San Francisco", "New York", "Los Angeles"];
+const BAR_SHEET = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRmNCSLKaFGoRDnnOI_HkZ1pPYAHBzTx2KtsPFiQl347KYxbm-iy5Gjl5XjVuR7-00qW12_n7h-ovkI/pub?output=csv';
 
-function HotTonight() {
-  const [hotBars, setHotBars] = useState([]);
-  const [selectedCity, setSelectedCity] = useState("Berkeley");
+const HotTonight = () => {
+  const [bars, setBars] = useState([]);
+  const [checkins, setCheckins] = useState([]);
+  const [mode, setMode] = useState('hot');
+  const [userProfile, setUserProfile] = useState(null);
 
   useEffect(() => {
-    const oneHourAgo = Timestamp.fromDate(new Date(Date.now() - 60 * 60 * 1000));
-
-    const q = query(
-      collection(db, "checkins"),
-      where("timestamp", ">=", oneHourAgo),
-      where("city", "==", selectedCity)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const counts = {};
-      const checkinDocs = snapshot.docs.map((doc) => doc.data());
-      console.log("🔥 Raw check-ins for", selectedCity, ":", checkinDocs);
-
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        const bar = data.bar;
-        if (counts[bar]) {
-          counts[bar] += 1;
-        } else {
-          counts[bar] = 1;
-        }
-      });
-
-      const sortedBars = Object.entries(counts)
-        .sort((a, b) => b[1] - a[1])
-        .map(([bar, count]) => ({ bar, count }));
-
-      setHotBars(sortedBars);
+    Papa.parse(BAR_SHEET, {
+      download: true,
+      header: true,
+      complete: (results) => {
+        const barList = results.data.map(row => ({
+          id: row.id || row.bar,
+          name: row.bar,
+          city: row.city,
+          lat: parseFloat(row.latitude),
+          lng: parseFloat(row.longitude)
+        })).filter(b => b.name && b.city);
+        setBars(barList);
+      }
     });
+  }, []);
 
-    return () => unsubscribe();
-  }, [selectedCity]);
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'checkins'), (snap) => {
+      setCheckins(snap.docs.map(doc => doc.data()));
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const ref = doc(db, 'users', user.uid);
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          setUserProfile(snap.data());
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const getFilteredCheckins = () => {
+    if (mode === 'hot') return checkins;
+    if (!userProfile) return [];
+
+    return checkins.filter(ci => {
+      const ageOk = ci.age >= 18 && ci.age <= 100;
+      const genderOk = userProfile.preferences?.gender
+        ? ci.gender === userProfile.preferences.gender
+        : true;
+      const orientationOk = userProfile.preferences?.orientation
+        ? ci.orientation === userProfile.preferences.orientation
+        : true;
+      return ageOk && genderOk && orientationOk;
+    });
+  };
+
+  const barActivity = bars
+    .filter(bar => userProfile?.city && bar.city?.toLowerCase() === userProfile.city.toLowerCase())
+    .map(bar => {
+      const count = getFilteredCheckins().filter(ci => ci.bar === bar.name).length;
+      return { ...bar, count };
+    })
+    .filter(bar => bar.count > 0)
+    .sort((a, b) => b.count - a.count);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black text-white pt-20 pb-24 px-4">
-      <h2 className="text-3xl font-bold text-center mb-6">🔥 Hot Tonight</h2>
-
-      <div className="mb-6 max-w-sm mx-auto">
-        <label className="block font-semibold mb-2">Select a city:</label>
-        <select
-          value={selectedCity}
-          onChange={(e) => setSelectedCity(e.target.value)}
-          className="w-full border rounded px-3 py-2 text-black"
+    <div className="p-4">
+      <h1 className="text-3xl font-bold mb-4">Hot Tonight 🔥</h1>
+      <div className="flex gap-2 mb-6">
+        <button
+          onClick={() => setMode('hot')}
+          className={`px-4 py-2 rounded ${mode === 'hot' ? 'bg-black text-white' : 'bg-gray-200'}`}
         >
-          {cityOptions.map((city) => (
-            <option key={city} value={city}>{city}</option>
-          ))}
-        </select>
+          Trending Now
+        </button>
+        <button
+          onClick={() => setMode('match')}
+          className={`px-4 py-2 rounded ${mode === 'match' ? 'bg-black text-white' : 'bg-gray-200'}`}
+        >
+          Matching Your Preferences
+        </button>
       </div>
 
-      <Link
-        to="/events"
-        className="block mb-6 text-center text-indigo-400 hover:text-indigo-200 underline"
-      >
-        🎉 Check out upcoming events
-      </Link>
-
-      {hotBars.length === 0 ? (
-        <p className="text-center text-gray-300">
-          No activity yet in {selectedCity}. Check back soon or invite friends to check in!
-        </p>
-      ) : (
-        <div className="space-y-4">
-          {hotBars.map(({ bar, count }, idx) => (
-            <Link
-              key={bar}
-              to={`/bar/${encodeURIComponent(bar)}`}
-              className="block bg-white text-black p-4 rounded-2xl shadow hover:shadow-lg transition duration-200"
-            >
-              <div className="flex justify-between items-center">
-                <div className="text-lg font-semibold">
-                  {idx === 0 ? `🔥 ${idx + 1}. ${bar}` : `${idx + 1}. ${bar}`}
-                </div>
-                <div className="text-sm text-gray-700">
-                  {count} {count === 1 ? "person" : "people"}
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
+      <ul className="space-y-2">
+        {barActivity.map((bar, i) => (
+          <li key={i} className="p-3 rounded bg-white shadow text-black">
+            <strong>{bar.name}</strong> — {bar.city} — {bar.count} check-in{bar.count !== 1 ? 's' : ''}
+          </li>
+        ))}
+      </ul>
     </div>
   );
-}
+};
 
 export default HotTonight;

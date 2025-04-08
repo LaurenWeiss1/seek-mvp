@@ -11,21 +11,18 @@ import HotTonight from "./HotTonight";
 import BulkBarUploader from "./BulkBarUploader";
 import InstallPrompt from "./components/InstallPrompt";
 import ChatRoom from "./ChatRoom";
-import ProfileForm from "./components/ProfileForm"; // 🔁 used instead of modal
+import ProfileForm from "./components/ProfileForm";
 import ProfileAuth from "./ProfileAuth";
 import Modal from "./components/Modal";
 import AuthForm from "./components/AuthForm";
 import TestSeed from './TestSeed';
 import logo from "./seek-logo.svg";
-
-import EventsPage from "./EventsPage"; // at top
+import EventsPage from "./EventsPage";
 import EventSubmission from './EventSubmission';
 import SubmitForm from "./SubmitForm";
 import ModeratorDashboard from "./ModeratorDashboard";
 
-
-
-
+import MapView from "./MapView"; // 🗺️ Added map view
 
 signInAnonymously(auth)
   .then(() => console.log("Signed in anonymously"))
@@ -74,7 +71,6 @@ function App() {
   return (
     <Router>
       <div className="flex flex-col h-screen overflow-hidden">
-        {/* Top left logo */}
         <div className="fixed top-0 left-0 z-40 flex items-center px-4 py-2 bg-white shadow-md">
           <Link to="/" className="flex items-center gap-2">
             <img src={logo} alt="Seek Logo" className="h-7 w-7 object-contain" />
@@ -96,10 +92,9 @@ function App() {
             <Route path="/submit-event" element={<EventSubmission />} />
             <Route path="/submit" element={<SubmitForm />} />
             <Route path="/moderator" element={<ModeratorDashboard />} />
+            <Route path="/test-seed" element={<TestSeed />} />
 
-
-
-
+            <Route path="/map" element={<MapView />} /> {/* 🗺️ Added route for testing */}
           </Routes>
         </main>
 

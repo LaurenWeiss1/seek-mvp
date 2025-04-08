@@ -13,6 +13,8 @@ export default function Header({ onOpenAuth, onOpenProfile }) {
     { path: "/bar/Berkeley", label: "🧭" }, // default route for bar feed
     { path: "/checkin", label: "✅" },
     { to: "/events", label: "🔔" },
+    { to: "/map", label: "🗺️" },
+
 
   ];
 

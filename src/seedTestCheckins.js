@@ -1,3 +1,4 @@
+// src/seedTestCheckins.js
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 
@@ -56,7 +57,7 @@ const sampleCheckins = [
     city: "Berkeley",
     lat: 37.8695,
     lng: -122.2674,
-  },
+  }
 ];
 
 export const seedTestCheckins = async () => {

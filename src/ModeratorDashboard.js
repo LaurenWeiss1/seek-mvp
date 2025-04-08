@@ -119,6 +119,12 @@ function ModeratorDashboard() {
           ))
         )}
       </section>
+
+      <div className="mt-10 text-center">
+        <p className="text-sm text-gray-400">
+          Go back to <Link to="/events" className="underline text-blue-400">Events & Promos</Link>
+        </p>
+      </div>
     </div>
   );
 }

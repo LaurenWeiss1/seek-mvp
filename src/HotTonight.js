@@ -50,46 +50,45 @@ function HotTonight() {
   }, [selectedCity]);
 
   return (
-    <div className="max-w-xl mx-auto p-6">
-      <h2 className="text-3xl font-bold mb-4 text-center">🔥 Hot Tonight</h2>
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black text-white pt-20 pb-24 px-4">
+      <h2 className="text-3xl font-bold text-center mb-6">🔥 Hot Tonight</h2>
 
-      <div className="mb-4">
-        <label className="block font-medium mb-1">Select a city:</label>
+      <div className="mb-6 max-w-sm mx-auto">
+        <label className="block font-semibold mb-2">Select a city:</label>
         <select
           value={selectedCity}
           onChange={(e) => setSelectedCity(e.target.value)}
-          className="w-full border p-2 rounded"
+          className="w-full border rounded px-3 py-2 text-black"
         >
           {cityOptions.map((city) => (
-            <option key={city} value={city}>
-              {city}
-            </option>
+            <option key={city} value={city}>{city}</option>
           ))}
         </select>
       </div>
 
       {hotBars.length === 0 ? (
-        <p className="text-gray-500 text-center">
+        <p className="text-center text-gray-300">
           No activity yet in {selectedCity}. Check back soon or invite friends to check in!
         </p>
       ) : (
-        <ul className="divide-y border rounded overflow-hidden">
+        <div className="space-y-4">
           {hotBars.map(({ bar, count }, idx) => (
-            <li key={bar} className="p-4 flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <Link
-                  to={`/bar/${encodeURIComponent(bar)}`}
-                  className="font-medium text-blue-600 hover:underline"
-                >
-{idx === 0 ? `🔥 ${idx + 1}. ${bar}` : `${idx + 1}. ${bar}`}
-</Link>
+            <Link
+              key={bar}
+              to={`/bar/${encodeURIComponent(bar)}`}
+              className="block bg-white text-black p-4 rounded-2xl shadow hover:shadow-lg transition duration-200"
+            >
+              <div className="flex justify-between items-center">
+                <div className="text-lg font-semibold">
+                  {idx === 0 ? `🔥 ${idx + 1}. ${bar}` : `${idx + 1}. ${bar}`}
+                </div>
+                <div className="text-sm text-gray-700">
+                  {count} {count === 1 ? "person" : "people"}
+                </div>
               </div>
-              <span className="text-sm text-gray-600 whitespace-nowrap">
-                {count} {count === 1 ? "person" : "people"}
-              </span>
-            </li>
+            </Link>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );

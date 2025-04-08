@@ -18,6 +18,15 @@ import AuthForm from "./components/AuthForm";
 import TestSeed from './TestSeed';
 import logo from "./seek-logo.svg";
 
+import EventsPage from "./EventsPage"; // at top
+import EventSubmission from './EventSubmission';
+import SubmitForm from "./SubmitForm";
+import ModeratorDashboard from "./ModeratorDashboard";
+
+
+
+
+
 signInAnonymously(auth)
   .then(() => console.log("Signed in anonymously"))
   .catch(error => console.error("Anonymous sign-in error:", error));
@@ -82,8 +91,14 @@ function App() {
             <Route path="/admin" element={<BulkBarUploader />} />
             <Route path="/chat" element={<ChatRoom />} />
             <Route path="/profile" element={<ProfileForm />} />
-            <Route path="/test-seed" element={<TestSeed />} />
             <Route path="/admin-seed" element={<TestSeed />} />
+            <Route path="/events" element={<EventsPage />} />
+            <Route path="/submit-event" element={<EventSubmission />} />
+            <Route path="/submit" element={<SubmitForm />} />
+            <Route path="/moderator" element={<ModeratorDashboard />} />
+
+
+
 
           </Routes>
         </main>

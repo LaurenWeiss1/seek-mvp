@@ -66,6 +66,13 @@ function HotTonight() {
         </select>
       </div>
 
+      <Link
+        to="/events"
+        className="block mb-6 text-center text-indigo-400 hover:text-indigo-200 underline"
+      >
+        🎉 Check out upcoming events
+      </Link>
+
       {hotBars.length === 0 ? (
         <p className="text-center text-gray-300">
           No activity yet in {selectedCity}. Check back soon or invite friends to check in!

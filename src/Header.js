@@ -12,6 +12,8 @@ export default function Header({ onOpenAuth, onOpenProfile }) {
     { path: "/chat", label: "💬" },
     { path: "/bar/Berkeley", label: "🧭" }, // default route for bar feed
     { path: "/checkin", label: "✅" },
+    { to: "/events", label: "🔔" },
+
   ];
 
   const getInitials = (name) => {

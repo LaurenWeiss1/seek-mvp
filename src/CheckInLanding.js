@@ -1,27 +1,53 @@
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import CheckInCityBayAreaOnly from "./CheckInCityBayAreaOnly";
 
-function CheckInLanding() {
+function CheckInLanding({ onComplete }) {
+  const [started, setStarted] = useState(false);
+
+  if (started) {
+    // Show check-in flow
+    return <CheckInCityBayAreaOnly onComplete={onComplete} />;
+  }
+
   return (
-    <div className="bg-[#111827] text-white min-h-screen flex flex-col items-center justify-center px-6 text-center">
-      <div className="space-y-6 max-w-md">
-        <h1 className="text-4xl font-bold leading-tight">
-          Welcome to <span className="text-blue-400">Seek</span> 👋
+    <div
+      className="relative min-h-screen text-white flex flex-col items-center justify-center px-6 text-center"
+      style={{
+        backgroundColor: "#0b0d12",
+        backgroundImage: "url('/custom-grid.png')",
+        backgroundSize: "cover",
+        backgroundRepeat: "no-repeat",
+      }}
+    >
+      {/* Blurred overlay */}
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+
+      {/* Content */}
+      <div className="relative space-y-6 max-w-md z-10">
+        <h1 className="text-5xl font-extrabold leading-tight">
+          Welcome to{" "}
+          <span style={{ color: "#A1C5E6" }}>
+            Seek
+          </span>{" "}
+          👋
         </h1>
-        <p className="text-gray-300 text-lg">
-          Discover who’s out and about. Check in and connect at real venues in your city.
+        <p className="text-gray-200 text-lg">
+          Discover who’s out and about. Check in and connect at real venues in
+          your city.
         </p>
 
-        <Link
-          to="/checkin"
-          className="inline-block bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg transition duration-200 shadow"
+        <button
+          onClick={() => setStarted(true)}
+          className="inline-block font-semibold py-3 px-8 rounded-xl transition transform hover:scale-105 shadow-lg"
+          style={{
+            backgroundColor: "#A1C5E6",
+            color: "#0b0d12",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#90B8DE")}
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "#A1C5E6")}
         >
-          Check In Now
-        </Link>
-
-        <div className="flex justify-center gap-4 text-sm text-gray-400 pt-4">
-          <Link to="/hot" className="hover:underline">Trending</Link>
-          <Link to="/map" className="hover:underline">Hot Map</Link>
-        </div>
+          Get Started
+        </button>
       </div>
     </div>
   );

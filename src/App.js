@@ -1,5 +1,14 @@
-import { useState } from "react";
-import { HashRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
+// App.js — updated with proper check-in redirect flow
+import { useEffect, useState } from "react";
+import {
+  HashRouter as Router,
+  Routes,
+  Route,
+  Link,
+  useLocation,
+  useNavigate,
+  Navigate
+} from "react-router-dom";
 import { signInAnonymously } from "firebase/auth";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { auth } from "./firebase";
@@ -21,8 +30,9 @@ import EventsPage from "./EventsPage";
 import EventSubmission from './EventSubmission';
 import SubmitForm from "./SubmitForm";
 import ModeratorDashboard from "./ModeratorDashboard";
-
-import MapView from "./MapView"; // 🗺️ Added map view
+import MapView from "./MapView";
+import CheckInCityBayAreaOnly from './CheckInCityBayAreaOnly';
+import BarSearchPage from './pages/BarSearchPage';
 
 signInAnonymously(auth)
   .then(() => console.log("Signed in anonymously"))
@@ -31,6 +41,26 @@ signInAnonymously(auth)
 function BottomNav() {
   const location = useLocation();
   const [user] = useAuthState(auth);
+  const navigate = useNavigate();
+
+  const handleCheckInClick = () => {
+    // Preserve user profile but clear check-in location info
+    const saved = localStorage.getItem("checkinFormData");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      const cleaned = {
+        ...parsed,
+        city: "",
+        bar: ""
+      };
+      localStorage.setItem("checkinFormData", JSON.stringify(cleaned));
+    }
+
+    localStorage.removeItem("lastCheckInCity");
+    localStorage.removeItem("lastCheckInBar");
+
+    navigate("/checkin-landing");
+  };
 
   const getInitials = (name) => {
     if (!name) return "👤";
@@ -42,23 +72,42 @@ function BottomNav() {
   };
 
   const navItems = [
-    { to: "/checkin", label: "✅" },
-    { to: "/hot", label: "🔥" },
+    { label: "✅", onClick: handleCheckInClick },
+    { to: "/search", label: "🔍" },
+    { to: "/hottonight", label: "🔥" },
     { to: "/chat", label: "💬" },
-    { to: "/bar/AllBars", label: "🧭" },
     { to: "/profile", label: user?.displayName || getInitials(user?.email || "") || "👤" },
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-inner z-50 flex justify-around items-center h-14 text-xl">
-      {navItems.map(item => (
-        <Link
-          key={item.to}
-          to={item.to}
-          className={`${location.pathname === item.to ? "text-blue-600" : "text-gray-500"} hover:text-black`}
-        >
-          {item.label}
-        </Link>
+    <nav className="fixed bottom-0 left-0 right-0 bg-black/30 backdrop-blur-md border-t border-white/10 z-50 flex justify-around items-center h-14 text-xl
+      sm:text-2xl sm:h-16
+      px-2
+    ">
+      {navItems.map((item, index) => (
+        item.onClick ? (
+          <button
+            key={index}
+            onClick={item.onClick}
+            className="flex-1 flex justify-center items-center text-gray-300 hover:text-white py-2"
+            aria-label="checkin"
+          >
+            {item.label}
+          </button>
+        ) : (
+          <Link
+            key={item.to}
+            to={item.to}
+            className={`
+              flex-1 flex justify-center items-center
+              ${location.pathname === item.to ? "text-blue-400" : "text-gray-300"} hover:text-white
+              py-2
+            `}
+            aria-label={item.to.replace("/", "") || "home"}
+          >
+            {item.label}
+          </Link>
+        )
       ))}
     </nav>
   );
@@ -67,48 +116,107 @@ function BottomNav() {
 function App() {
   const [authOpen, setAuthOpen] = useState(false);
   const [user] = useAuthState(auth);
+  const location = useLocation();
+  const [showCheckIn, setShowCheckIn] = useState(true);
+
+  const handleCheckInComplete = (checkInData) => {
+    localStorage.setItem('checkInTimestamp', new Date().toISOString());
+    localStorage.setItem('lastCheckInBar', checkInData.bar);
+    localStorage.setItem('lastCheckInCity', checkInData.city);
+    localStorage.setItem('userInfo', JSON.stringify(checkInData.userInfo));
+    setShowCheckIn(false);
+  };
+
+  useEffect(() => {
+    const checkInTimestamp = localStorage.getItem('checkInTimestamp');
+    const notAtBar = localStorage.getItem('notAtBar');
+    const now = new Date();
+    const twelveHours = 12 * 60 * 60 * 1000;
+
+    // Allow access if checked in OR if "not at bar" is set
+    if ((!checkInTimestamp || now - new Date(checkInTimestamp) > twelveHours) && !notAtBar) {
+      setShowCheckIn(true);
+    } else {
+      setShowCheckIn(false);
+    }
+  }, []);
+
+  const hideUI =
+    showCheckIn ||
+    location.pathname.startsWith("/checkin") ||
+    location.pathname === "/checkin-landing" ||
+    location.pathname === "/city";
+
 
   return (
-    <Router>
-      <div className="flex flex-col h-screen overflow-hidden">
-        <div className="fixed top-0 left-0 z-40 flex items-center px-4 py-2 bg-white shadow-md">
+    <>
+      {!hideUI && (
+        <div className="fixed top-0 left-0 z-40 flex items-center px-4 py-2 bg-black/30 backdrop-blur-md shadow-none w-full">
           <Link to="/" className="flex items-center gap-2">
             <img src={logo} alt="Seek Logo" className="h-7 w-7 object-contain" />
-            <span className="font-semibold text-lg text-gray-800">Seek</span>
+            <span className="font-semibold text-lg text-white">Seek</span>
           </Link>
         </div>
+      )}
 
-        <main className="flex-1 overflow-y-auto pt-14 pb-16">
-          <Routes>
-            <Route path="/" element={<CheckInLanding />} />
-            <Route path="/checkin" element={<CheckIn />} />
-            <Route path="/bar/:barName" element={<BarFeed />} />
-            <Route path="/hot" element={<HotTonight />} />
-            <Route path="/admin" element={<BulkBarUploader />} />
-            <Route path="/chat" element={<ChatRoom />} />
-            <Route path="/profile" element={<ProfileForm />} />
-            <Route path="/admin-seed" element={<TestSeed />} />
-            <Route path="/events" element={<EventsPage />} />
-            <Route path="/submit-event" element={<EventSubmission />} />
-            <Route path="/submit" element={<SubmitForm />} />
-            <Route path="/moderator" element={<ModeratorDashboard />} />
-            <Route path="/test-seed" element={<TestSeed />} />
+<main
+  className={
+    location.pathname === "/bar/none"
+      ? "h-screen overflow-hidden"
+      : hideUI
+      ? ""
+      : "flex-1 overflow-y-auto pt-14 pb-16"
+  }
+>
+        <Routes>
+          {showCheckIn ? (
+            <>
+              <Route path="*" element={<Navigate to="/city" replace />} />
+              <Route path="/city" element={<CheckInCityBayAreaOnly onComplete={handleCheckInComplete} />} />
+              <Route path="/checkin" element={<CheckIn onComplete={handleCheckInComplete} />} />
+            </>
+          ) : (
+            <>
+              <Route path="/" element={<HotTonight />} />
+              <Route path="/checkin" element={<CheckIn />} />
+              <Route path="/bar/:barName" element={<BarFeed />} />
+              <Route path="/hottonight" element={<HotTonight />} />
+              <Route path="/admin" element={<BulkBarUploader />} />
+              <Route path="/chat" element={<ChatRoom />} />
+              <Route path="/profile" element={<ProfileForm />} />
+              <Route path="/admin-seed" element={<TestSeed />} />
+              <Route path="/events" element={<EventsPage />} />
+              <Route path="/submit-event" element={<EventSubmission />} />
+              <Route path="/submit" element={<SubmitForm />} />
+              <Route path="/moderator" element={<ModeratorDashboard />} />
+              <Route path="/test-seed" element={<TestSeed />} />
+              <Route path="/map" element={<MapView />} />
+              <Route path="/city" element={<CheckInCityBayAreaOnly />} />
+              <Route path="/checkin-landing" element={<CheckInLanding />} />
+              <Route path="/search" element={<BarSearchPage />} />
+              <Route path="/bar/none" element={<BarFeed />} />
+            </>
+          )}
+        </Routes>
+      </main>
 
-            <Route path="/map" element={<MapView />} /> {/* 🗺️ Added route for testing */}
-          </Routes>
-        </main>
-
-        <BottomNav />
-        <InstallPrompt />
-
-        <Modal isOpen={authOpen} onClose={() => setAuthOpen(false)}>
-          <AuthForm onSignedUp={() => {
-            setAuthOpen(false);
-          }} />
-        </Modal>
-      </div>
-    </Router>
+      {!hideUI && (
+        <>
+          <BottomNav />
+          <InstallPrompt />
+          <Modal isOpen={authOpen} onClose={() => setAuthOpen(false)}>
+            <AuthForm onSignedUp={() => setAuthOpen(false)} />
+          </Modal>
+        </>
+      )}
+    </>
   );
 }
 
-export default App;
+export default function AppWithRouter() {
+  return (
+    <Router>
+      <App />
+    </Router>
+  );
+}

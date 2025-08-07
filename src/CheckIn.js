@@ -1,7 +1,8 @@
-// src/CheckIn.js
-import React, { useEffect, useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { auth, db } from './firebase';
+import Select from 'react-select';
+import Papa from 'papaparse';
 import {
   signInAnonymously,
   onAuthStateChanged
@@ -12,40 +13,87 @@ import {
   doc,
   getDoc,
   setDoc,
-  serverTimestamp
+  serverTimestamp,
+  query,
+  where,
+  orderBy,
+  limit,
+  getDocs
 } from 'firebase/firestore';
-import Papa from 'papaparse';
-import { findNearestBar } from './utils/barUtils';
+import { differenceInHours } from 'date-fns';
+
+const cityBarDataSources = {
+  Berkeley: "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=1529534222&single=true&output=csv",
+  "San Francisco": "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=1713497672&single=true&output=csv",
+  Oakland: "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=498638698&single=true&output=csv",
+  //Marin: "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=447070284&single=true&output=csv",
+  "Palo Alto": "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=543562265&single=true&output=csv"
+};
 
 const genderOptions = [
   'Man', 'Woman', 'Transgender', 'Non-binary/non-conforming', 'Prefer not to respond'
 ];
-
 const sexualityOptions = [
   'Heterosexual (straight)', 'Gay', 'Lesbian', 'Bisexual', 'Queer', 'Asexual', 'Pansexual', 'Questioning', 'Prefer not to specify'
 ];
-
 const allUSStates = [
-  'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut', 'Delaware', 'Florida', 'Georgia', 'Hawaii',
-  'Idaho', 'Illinois', 'Indiana', 'Iowa', 'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan',
-  'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire', 'New Jersey', 'New Mexico', 'New York',
-  'North Carolina', 'North Dakota', 'Ohio', 'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota',
-  'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia', 'Wisconsin', 'Wyoming'
+  'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut',
+  'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa',
+  'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan',
+  'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada',
+  'New Hampshire', 'New Jersey', 'New Mexico', 'New York', 'North Carolina',
+  'North Dakota', 'Ohio', 'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island',
+  'South Carolina', 'South Dakota', 'Tennessee', 'Texas', 'Utah', 'Vermont',
+  'Virginia', 'Washington', 'West Virginia', 'Wisconsin', 'Wyoming',
+  'Not from the U.S.'
 ];
 
-function CheckIn() {
+async function getLastCheckin(uid) {
+  const checkinsRef = collection(db, "checkins");
+  const q = query(
+    checkinsRef,
+    where("uid", "==", uid),
+    orderBy("timestamp", "desc"),
+    limit(1)
+  );
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return null;
+  return snapshot.docs[0].data();
+}
+
+function CheckIn({ onComplete }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const queryParams = new URLSearchParams(location.search);
+  const selectedCity = queryParams.get("city") || "";
+
   const [user, setUser] = useState(null);
-  const [formData, setFormData] = useState({ name: '', age: '', gender: '', sexuality: '', homeState: '', homeCountry: '', college: '', currentState: '', city: '', bar: '' });
+  const [recentCheckin, setRecentCheckin] = useState(null);
+  const [formData, setFormData] = useState({
+    name: '', age: '', gender: '', sexuality: '', homeState: '',
+    homeCountry: '', college: '', city: selectedCity, bar: ''
+  });
   const [bars, setBars] = useState([]);
+  const [colleges, setColleges] = useState([]);
   const [barNotListed, setBarNotListed] = useState(false);
   const [customBar, setCustomBar] = useState('');
-  const [location, setLocation] = useState(null);
-  const debounceRef = useRef(null);
+  const [error, setError] = useState('');
+  const [notAtBar, setNotAtBar] = useState(false);
+  const [showNotAtBarPage, setShowNotAtBarPage] = useState(false);
+  const [showErrorPopup, setShowErrorPopup] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('checkinFormData');
+    if (saved) setFormData(JSON.parse(saved));
+  }, []);
+  useEffect(() => {
+    localStorage.setItem('checkinFormData', JSON.stringify(formData));
+  }, [formData]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
+
       if (currentUser) {
         const ref = doc(db, 'users', currentUser.uid);
         const snap = await getDoc(ref);
@@ -63,34 +111,69 @@ function CheckIn() {
             homeCity: profile.homeCity || ''
           }));
         }
+
+        const last = await getLastCheckin(currentUser.uid);
+        if (last) {
+          const hoursAgo = differenceInHours(new Date(), last.timestamp.toDate());
+          if (hoursAgo < 6) {
+            setRecentCheckin(last);
+            setFormData(prev => ({
+              ...prev,
+              bar: last.bar || prev.bar,
+              gender: last.gender || prev.gender,
+              sexuality: last.sexuality || prev.sexuality,
+              homeState: last.homeState || prev.homeState,
+              homeCountry: last.homeCountry || prev.homeCountry,
+              college: last.college || prev.college,
+              city: last.city || prev.city
+            }));
+          }
+        }
+      } else {
+        const anonData = localStorage.getItem('anonRecentCheckin');
+        if (anonData) {
+          const parsed = JSON.parse(anonData);
+          const hoursAgo = differenceInHours(new Date(), new Date(parsed.timestamp));
+          if (hoursAgo < 6) {
+            setRecentCheckin(parsed);
+            setFormData(prev => ({
+              ...prev,
+              bar: parsed.bar || prev.bar,
+              city: parsed.city || prev.city
+            }));
+          }
+        }
       }
     });
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => console.warn('Location access denied')
-      );
-    }
-  }, []);
+    if (!selectedCity || !cityBarDataSources[selectedCity]) return;
 
-  useEffect(() => {
-    const barSheet = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRmNCSLKaFGoRDnnOI_HkZ1pPYAHBzTx2KtsPFiQl347KYxbm-iy5Gjl5XjVuR7-00qW12_n7h-ovkI/pub?output=csv';
-    Papa.parse(barSheet, {
+    Papa.parse(cityBarDataSources[selectedCity], {
       download: true,
       header: true,
       complete: (results) => {
         const barList = results.data.map(row => ({
-          id: row.id || row.bar,
-          name: row.bar,
-          city: row.city,
+          label: row.bar?.trim(),
+          value: row.bar?.trim(),
           lat: parseFloat(row.latitude),
           lng: parseFloat(row.longitude)
-        })).filter(b => b.name && b.city);
+        })).filter(b => b.label && !isNaN(b.lat) && !isNaN(b.lng));
         setBars(barList);
+      }
+    });
+  }, [selectedCity]);
+
+  useEffect(() => {
+    const collegeSheet = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=576309257&single=true&output=csv";
+    Papa.parse(collegeSheet, {
+      download: true,
+      header: true,
+      complete: (results) => {
+        const list = results.data.map(row => row.college?.trim()).filter(Boolean);
+        setColleges(Array.from(new Set(list)).sort());
       }
     });
   }, []);
@@ -102,13 +185,20 @@ function CheckIn() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const finalBar = barNotListed ? customBar : formData.bar;
 
-    let nearestBar = null;
-    if (location && bars.length > 0) {
-      nearestBar = findNearestBar(location, bars);
+    if (!finalBar && !notAtBar) {
+      setError("Oops! You must select which bar you're at.");
+      setShowErrorPopup(true);
+      return;
     }
+    setError("");
+    setShowErrorPopup(false);
 
-    const finalBar = barNotListed ? customBar : (formData.bar || nearestBar?.name);
+    if (notAtBar) {
+      setShowNotAtBarPage(true);
+      return;
+    }
 
     if (!user) {
       const wantsProfile = window.confirm('Want to save your info and create a profile?');
@@ -125,86 +215,182 @@ function CheckIn() {
       }
     }
 
-    try {
-      await addDoc(collection(db, 'checkins'), {
+    await addDoc(collection(db, 'checkins'), {
+      ...formData,
+      bar: finalBar,
+      uid: user ? user.uid : null,
+      timestamp: serverTimestamp()
+    });
+
+    if (user) {
+      await setDoc(doc(db, 'users', user.uid), {
         ...formData,
+        lastCheckIn: { bar: finalBar, city: selectedCity, timestamp: new Date().toISOString() }
+      }, { merge: true });
+    } else {
+      localStorage.setItem('anonRecentCheckin', JSON.stringify({
         bar: finalBar,
-        barId: nearestBar?.id || null,
-        lat: nearestBar?.lat || null,
-        lng: nearestBar?.lng || null,
-        city: nearestBar?.city || formData.city,
-        timestamp: serverTimestamp()
-      });
+        city: selectedCity,
+        timestamp: new Date().toISOString()
+      }));
+    }
 
-      if (user) {
-        await setDoc(doc(db, 'users', user.uid), {
-          ...formData,
-          lastCheckIn: {
-            bar: finalBar,
-            city: formData.city,
-            timestamp: new Date().toISOString()
-          }
-        }, { merge: true });
-      }
+    const userInfo = {
+      gender: formData.gender,
+      sexuality: formData.sexuality,
+      college: formData.college,
+      homeState: formData.homeState,
+      homeCountry: formData.homeCountry,
+      homeCity: formData.homeCity
+    };
 
-      if (barNotListed && customBar) {
-        await addDoc(collection(db, 'bars'), {
-          name: customBar,
-          city: formData.city,
-          createdAt: serverTimestamp()
-        });
-      }
-
+    if (onComplete) {
+      onComplete({ bar: finalBar, city: selectedCity, userInfo });
+    } else {
       alert(`✅ You’re checked in at ${finalBar}!`);
       navigate(`/bar/${finalBar}`);
-    } catch (err) {
-      console.error('Check-in error:', err);
     }
+
+    localStorage.removeItem('notAtBar');
   };
 
+  if (showNotAtBarPage) {
+    return (
+      <div
+        className="relative min-h-screen w-screen flex flex-col items-center justify-center text-center"
+        style={{
+          backgroundColor: "#0b0d12",
+          backgroundImage: "url('/custom-grid.png')",
+          backgroundSize: "cover",
+          backgroundRepeat: "no-repeat",
+        }}
+      >
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+        <div className="relative z-10 max-w-xl mx-auto p-6 text-white">
+          <h1 className="text-3xl font-bold mb-6">You're not currently checked into a bar.</h1>
+          <button
+            className="bg-[#A1C5E6] text-black px-6 py-3 rounded-lg font-semibold text-lg hover:bg-[#90B8DE] transition"
+            onClick={() => {
+              localStorage.setItem('notAtBar', 'true');
+              setNotAtBar(false);
+              setShowNotAtBarPage(false);
+              navigate('/bar/none'); // <-- Go to the special BarView page
+            }}
+          >
+            Continue to app
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-[#111827] overflow-y-auto pt-20">
-      <form onSubmit={handleSubmit} className="text-white max-w-xl mx-auto p-6 space-y-6">
-        <h1 className="text-4xl font-bold text-center">Welcome to Seek <span className="inline-block">👋</span></h1>
-        <>
-        <input name="name" value={formData.name} onChange={handleChange} placeholder="Name" required className="w-full p-2 rounded bg-[#1F2937] border border-gray-600" />
+    <div
+      className="relative min-h-screen w-screen flex flex-col items-center justify-center text-center"
+      style={{
+        backgroundColor: "#0b0d12",
+        backgroundImage: "url('/custom-grid.png')",
+        backgroundSize: "cover",
+        backgroundRepeat: "no-repeat",
+      }}
+    >
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="relative z-10 max-w-xl mx-auto p-6 text-white">
+        <h1 className="text-3xl font-bold mb-6">Check In</h1>
 
-        <input name="age" value={formData.age} onChange={handleChange} placeholder="Age" required className="w-full p-2 rounded bg-[#1F2937] border border-gray-600" />
-
-        <select name="gender" value={formData.gender} onChange={handleChange} className="w-full p-2 rounded bg-white text-black">
-          <option value="">Select Gender</option>
-          {genderOptions.map(g => <option key={g} value={g}>{g}</option>)}
-        </select>
-
-        <select name="sexuality" value={formData.sexuality} onChange={handleChange} className="w-full p-2 rounded bg-white text-black">
-          <option value="">Select Sexuality</option>
-          {sexualityOptions.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-
-        <select name="homeState" value={formData.homeState} onChange={handleChange} className="w-full p-2 rounded bg-white text-black">
-          <option value="">Home State</option>
-          {allUSStates.map(state => <option key={state} value={state}>{state}</option>)}
-        </select>
-
-        {formData.homeState === "Not from the U.S." && (
-          <input name="homeCountry" value={formData.homeCountry} onChange={handleChange} placeholder="Home Country" className="w-full p-2 rounded bg-[#1F2937] border border-gray-600" />
+        {/* Error Popup */}
+        {showErrorPopup && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+            <div className="bg-white text-black rounded-xl shadow-lg p-8 max-w-xs w-full flex flex-col items-center">
+              <div className="mb-4 text-lg font-semibold">{error}</div>
+              <button
+                type="button"
+                className="mb-2 py-2 px-4 rounded-xl bg-gray-700 text-white w-full"
+                onClick={() => {
+                  localStorage.setItem('notAtBar', 'true');
+                  setShowErrorPopup(false);
+                  setError('');
+                  navigate('/bar/none'); // <-- Immediately go to BarView "none"
+                }}
+              >
+                I'm not at a bar
+              </button>
+              <button
+                type="button"
+                className="py-2 px-4 rounded-xl bg-gray-300 text-black w-full"
+                onClick={() => setShowErrorPopup(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
         )}
 
-        <input name="college" value={formData.college} onChange={handleChange} placeholder="College" className="w-full p-2 rounded bg-[#1F2937] border border-gray-600" />
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <input name="name" value={formData.name} onChange={handleChange} placeholder="Name" required className="w-full p-3 rounded-xl bg-white/10 border border-white/20 text-white" />
+          <input name="age" value={formData.age} onChange={handleChange} placeholder="Age" required className="w-full p-3 rounded-xl bg-white/10 border border-white/20 text-white" />
 
-        <select name="currentState" value={formData.currentState} onChange={handleChange} className="w-full p-2 rounded bg-white text-black">
-          <option value="">Current State</option>
-          {allUSStates.map(state => <option key={state} value={state}>{state}</option>)}
-        </select>
+          <select name="gender" value={formData.gender} onChange={handleChange} className="w-full p-3 rounded-xl bg-white text-black">
+            <option value="">Select Gender</option>
+            {genderOptions.map(g => <option key={g} value={g}>{g}</option>)}
+          </select>
 
-        {formData.currentState && (
-          <input name="city" value={formData.city} onChange={handleChange} placeholder="City" className="w-full p-2 rounded bg-[#1F2937] border border-gray-600" />
-        )}
-        </>
-        <button type="submit" className="w-full bg-gray-700 text-white py-2 rounded mt-4 hover:bg-gray-600">
-          Submit
-        </button>
-      </form>
+          <select name="sexuality" value={formData.sexuality} onChange={handleChange} className="w-full p-3 rounded-xl bg-white text-black">
+            <option value="">Select Sexuality</option>
+            {sexualityOptions.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+
+          <select name="homeState" value={formData.homeState} onChange={handleChange} className="w-full p-3 rounded-xl bg-white text-black">
+            <option value="">Home State</option>
+            {allUSStates.map(state => <option key={state} value={state}>{state}</option>)}
+          </select>
+
+          {formData.homeState === "Not from the U.S." && (
+            <input name="homeCountry" value={formData.homeCountry} onChange={handleChange} placeholder="Home Country" className="w-full p-3 rounded-xl bg-white/10 border border-white/20 text-white" />
+          )}
+
+          <Select
+            options={colleges.map(c => ({ label: c, value: c }))}
+            value={formData.college ? { label: formData.college, value: formData.college } : null}
+            onChange={selected => setFormData(prev => ({ ...prev, college: selected ? selected.value : '' }))}
+            placeholder="Search or select your college"
+            isClearable
+            isSearchable
+            styles={{
+              control: base => ({ ...base, backgroundColor: '#1f2937', borderColor: '#374151', color: 'white' }),
+              input: base => ({ ...base, color: 'white' }),
+              singleValue: base => ({ ...base, color: 'white' }),
+              menu: base => ({ ...base, backgroundColor: '#1f2937', color: 'white' })
+            }}
+          />
+
+          <Select
+            options={bars.slice(0, 10)}
+            value={formData.bar ? { label: formData.bar, value: formData.bar } : null}
+            onChange={selected => setFormData(prev => ({ ...prev, bar: selected ? selected.value : '' }))}
+            placeholder="Start typing bar name..."
+            isClearable
+            isSearchable
+            styles={{
+              control: base => ({ ...base, backgroundColor: '#1f2937', borderColor: '#374151', color: 'white' }),
+              input: base => ({ ...base, color: 'white' }),
+              singleValue: base => ({ ...base, color: 'white' }),
+              menu: base => ({ ...base, backgroundColor: '#1f2937', color: 'white' })
+            }}
+          />
+
+          {barNotListed && (
+            <input name="customBar" value={customBar} onChange={e => setCustomBar(e.target.value)} placeholder="Enter Bar Name" className="w-full p-3 rounded-xl bg-white/10 border border-white/20 text-white" />
+          )}
+
+          <div className="text-sm text-gray-300 text-center">
+            Don’t see your bar?{' '}
+            <span className="underline cursor-pointer" onClick={() => setBarNotListed(true)}>Add it manually</span>
+          </div>
+
+          <button type="submit" className="w-full text-white py-3 rounded-xl transition transform hover:scale-105" style={{ backgroundColor: '#A1C5E6', color: '#000' }}>Submit</button>
+        </form>
+      </div>
     </div>
   );
 }

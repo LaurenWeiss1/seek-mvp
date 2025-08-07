@@ -1,243 +1,212 @@
-import { useEffect, useState, useRef } from "react";
-import Papa from "papaparse";
-import { getDatabase, ref, onChildAdded, push, set, update } from "firebase/database";
-import { getAuth } from "firebase/auth";
-import { v4 as uuidv4 } from 'uuid';
+import React, { useEffect, useState } from 'react';
+import {
+  collection,
+  addDoc,
+  onSnapshot,
+  query,
+  orderBy,
+  serverTimestamp,
+  doc,
+  getDoc
+} from 'firebase/firestore';
+import { db, auth } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 const funEmojis = ["🐸", "🦊", "🐼", "🐯", "🦄", "🐵", "🐙", "🐶", "🐱", "🐻", "🐧"];
+const profanityList = ['badword1', 'badword2']; // Add more filters as needed
 
-function ChatRoom() {
-  const [userLocation, setUserLocation] = useState(null);
-  const [barNearby, setBarNearby] = useState(null);
-  const [bars, setBars] = useState([]);
-  const [error, setError] = useState(null);
+const ChatRoom = () => {
   const [messages, setMessages] = useState([]);
-  const [newMessage, setNewMessage] = useState("");
-  const [userEmoji, setUserEmoji] = useState(localStorage.getItem("seek-user-emoji") || "");
-  const [replyingTo, setReplyingTo] = useState(null);
-  const messagesEndRef = useRef(null);
+  const [message, setMessage] = useState('');
+  const [userEmoji, setUserEmoji] = useState(localStorage.getItem('seek-user-emoji') || '');
+  const [city, setCity] = useState('');
+  const [bar, setBar] = useState('');
+  const [chatMode, setChatMode] = useState('city'); // 'city' or 'bar'
+  const [showCheckInModal, setShowCheckInModal] = useState(false);
 
-  const db = getDatabase();
-  const auth = getAuth();
-
-  const barSheet =
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vRmNCSLKaFGoRDnnOI_HkZ1pPYAHBzTx2KtsPFiQl347KYxbm-iy5Gjl5XjVuR7-00qW12_n7h-ovkI/pub?output=csv";
-
-  function getDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371e3;
-    const φ1 = lat1 * (Math.PI / 180);
-    const φ2 = lat2 * (Math.PI / 180);
-    const Δφ = (lat2 - lat1) * (Math.PI / 180);
-    const Δλ = (lon2 - lon1) * (Math.PI / 180);
-
-    const a =
-      Math.sin(Δφ / 2) ** 2 +
-      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-    return R * c;
-  }
+  const collectionPath =
+    chatMode === 'bar'
+      ? bar ? `chatrooms/bar-${bar}` : null
+      : city ? `chatrooms/city-${city}` : null;
 
   useEffect(() => {
-    Papa.parse(barSheet, {
-      download: true,
-      header: true,
-      complete: (results) => {
-        const cleanBars = results.data
-          .map((row) => ({
-            name: row.bar?.trim(),
-            city: row.city?.trim(),
-            latitude: parseFloat(row.latitude),
-            longitude: parseFloat(row.longitude),
-          }))
-          .filter((b) => b.name && b.latitude && b.longitude);
-        setBars(cleanBars);
-      },
-    });
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        setUserLocation({ latitude, longitude });
-      },
-      (err) => {
-        console.error("Location error", err);
-        setError("Location permission is required to use this feature.");
+    const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
+      if (u) {
+        const snap = await getDoc(doc(db, 'users', u.uid));
+        if (snap.exists()) {
+          const data = snap.data();
+          setCity(data?.lastCheckIn?.city || '');
+          setBar(data?.lastCheckIn?.bar || '');
+        }
       }
-    );
+    });
+    return () => unsubscribeAuth();
   }, []);
 
   useEffect(() => {
-    if (userLocation && bars.length > 0) {
-      const match = bars.find((bar) => {
-        const distance = getDistance(
-          userLocation.latitude,
-          userLocation.longitude,
-          bar.latitude,
-          bar.longitude
-        );
-        return distance <= 50;
-      });
+    if (!collectionPath) return; // Don't run if path is invalid
 
-      if (match) setBarNearby(match);
-    }
-  }, [userLocation, bars]);
-
-  useEffect(() => {
-    if (!barNearby) return;
-    const messagesRef = ref(db, `chats/${barNearby.name}`);
-    const unsubscribe = onChildAdded(messagesRef, (snapshot) => {
-      const msg = snapshot.val();
-      msg.id = snapshot.key;
-      setMessages((prev) => [...prev, msg]);
+    const q = query(collection(db, collectionPath, 'messages'), orderBy('timestamp'));
+    const unsub = onSnapshot(q, snap => {
+      setMessages(snap.docs.map(doc => doc.data()));
     });
-    return () => unsubscribe();
-  }, [barNearby]);
+    return () => unsub();
+  }, [collectionPath]);
 
-  useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages]);
+  const filterMessage = (text) => {
+    return profanityList.reduce(
+      (acc, bad) => acc.replace(new RegExp(bad, 'gi'), '****'),
+      text
+    );
+  };
 
-  const handleSend = async () => {
-    if (!newMessage.trim()) return;
-    const user = auth.currentUser;
-    const messageRef = push(ref(db, `chats/${barNearby.name}`));
-    await set(messageRef, {
-      uid: user?.uid || "anon",
-      text: newMessage,
-      timestamp: Date.now(),
+  const sendMessage = async () => {
+    if (!message.trim()) return;
+    const cleanText = filterMessage(message);
+    await addDoc(collection(db, collectionPath, 'messages'), {
       emoji: userEmoji,
-      votes: 0,
-      downvotes: 0,
-      replies: [],
-      parentId: replyingTo || null,
+      text: cleanText,
+      bar,
+      timestamp: serverTimestamp()
     });
-    setNewMessage("");
-    setReplyingTo(null);
+    setMessage('');
   };
-
-  const formatTime = (timestamp) => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const handleEmojiSelect = (emoji) => {
-    setUserEmoji(emoji);
-    localStorage.setItem("seek-user-emoji", emoji);
-  };
-
-  const handleUpvote = async (msgId) => {
-    const voted = localStorage.getItem(`voted-${msgId}`);
-    if (voted) return;
-    const msgRef = ref(db, `chats/${barNearby.name}/${msgId}`);
-    const updatedMsg = messages.find((m) => m.id === msgId);
-    if (!updatedMsg) return;
-    await update(msgRef, { votes: updatedMsg.votes + 1 });
-    localStorage.setItem(`voted-${msgId}`, "true");
-  };
-
-  const handleDownvote = async (msgId) => {
-    const voted = localStorage.getItem(`voted-down-${msgId}`);
-    if (voted) return;
-    const msgRef = ref(db, `chats/${barNearby.name}/${msgId}`);
-    const updatedMsg = messages.find((m) => m.id === msgId);
-    if (!updatedMsg) return;
-    await update(msgRef, { downvotes: (updatedMsg.downvotes || 0) + 1 });
-    localStorage.setItem(`voted-down-${msgId}`, "true");
-  };
-
-  const rootMessages = messages.filter((m) => !m.parentId);
-  const repliesFor = (id) => messages.filter((m) => m.parentId === id);
 
   return (
-    <div className="text-white px-4 pt-24 pb-6 min-h-screen bg-black flex flex-col">
-      <h1 className="text-3xl font-bold text-center mb-6">💬 Anonymous Bar Chat</h1>
+    <div
+      className="relative min-h-screen p-6 text-white"
+      style={{
+        backgroundColor: "#0b0d12",
+        backgroundImage: "url('/custom-grid.png')",
+        backgroundSize: "cover",
+        backgroundRepeat: "no-repeat",
+      }}
+    >
+      {/* Overlay */}
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
 
-      {!userEmoji && (
-        <div className="mb-6 text-center">
-          <p className="mb-2 text-lg">Choose your emoji identity:</p>
-          <div className="flex flex-wrap justify-center gap-3">
-            {funEmojis.map((emoji) => (
+      {/* Chat content */}
+      <div className="relative z-10 max-w-2xl mx-auto">
+        <h1 className="text-3xl font-extrabold mb-6 text-center">
+          Chat in {chatMode === 'bar' ? bar : city}
+        </h1>
+
+        {/* Mode Toggle */}
+        <div className="flex justify-center mb-4 gap-2">
+          <button
+            onClick={() => setChatMode('city')}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold ${
+              chatMode === 'city'
+                ? 'bg-[#A1C5E6] text-black'
+                : 'bg-white/10 text-white border border-white/20'
+            }`}
+          >
+            Chat in {city || 'City'}
+          </button>
+          <button
+            onClick={() => {
+              if (!bar) {
+                setShowCheckInModal(true);
+              } else {
+                setChatMode('bar');
+              }
+            }}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold ${
+              chatMode === 'bar'
+                ? 'bg-[#A1C5E6] text-black'
+                : 'bg-white/10 text-white border border-white/20'
+            }`}
+          >
+            Chat in {bar || 'Bar'}
+          </button>
+        </div>
+
+        {!userEmoji && (
+          <div className="mb-6 text-center">
+            <p className="mb-3 text-sm text-gray-300">Choose your emoji identity:</p>
+            <div className="flex flex-wrap justify-center gap-3">
+              {funEmojis.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => {
+                    setUserEmoji(emoji);
+                    localStorage.setItem("seek-user-emoji", emoji);
+                  }}
+                  className="text-2xl hover:scale-110 transition"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-3 mb-6">
+          {messages.map((msg, i) => (
+            <div
+              key={i}
+              className="bg-white/10 backdrop-blur-md rounded-xl p-3 shadow border border-gray-700 text-white"
+            >
+              <span className="text-xs text-gray-400">
+                [{new Date(msg.timestamp?.toDate?.() || '').toLocaleTimeString()}]
+              </span>{" "}
+              {msg.emoji} {msg.text}
+              {msg.bar && (
+                <span className="text-xs text-gray-400 ml-2">@{msg.bar}</span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-3">
+          <input
+            value={message}
+            onChange={e => setMessage(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && sendMessage()}
+            placeholder="Say something..."
+            className="flex-1 p-3 rounded-xl bg-white/5 border border-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={!userEmoji}
+          />
+          <button
+            onClick={sendMessage}
+            className="bg-[#A1C5E6] text-black font-semibold px-5 py-3 rounded-xl disabled:opacity-50 hover:scale-105 transition"
+            disabled={!userEmoji || !message.trim()}
+          >
+            Send
+          </button>
+        </div>
+      </div>
+
+      {/* Check-In Modal */}
+      {showCheckInModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="bg-[#0b0d12] border border-white/20 rounded-xl p-6 max-w-sm w-full text-center">
+            <h2 className="text-xl font-semibold mb-4">Not checked into a bar</h2>
+            <p className="text-gray-300 mb-6">
+              You’re not currently checked into a bar. Would you like to check in now?
+            </p>
+            <div className="flex justify-center gap-4">
               <button
-                key={emoji}
-                onClick={() => handleEmojiSelect(emoji)}
-                className="text-3xl hover:scale-110 transition"
+                onClick={() => {
+                  setShowCheckInModal(false);
+                  window.location.href = "/"; // or "/city" if that fits your check-in flow
+                }}
+                className="bg-[#A1C5E6] text-black px-4 py-2 rounded-lg font-semibold hover:scale-105 transition"
               >
-                {emoji}
+                Go to Check-In
               </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {error && <p className="text-red-400 text-center">{error}</p>}
-      {!userLocation && !error && <p className="text-center">📍 Getting your location...</p>}
-
-      {userLocation && !barNearby && (
-        <div className="text-center">
-          <p className="mb-2">🛑 You're not currently at a supported bar location.</p>
-          <p className="text-sm text-gray-400">
-            Your location:<br />
-            lat: {userLocation.latitude.toFixed(5)}, long: {userLocation.longitude.toFixed(5)}
-          </p>
-          <p className="text-sm text-gray-400 mt-1">Known bars loaded: {bars.length}</p>
-        </div>
-      )}
-
-      {barNearby && userEmoji && (
-        <div className="flex flex-col flex-1">
-          <p className="text-green-400 text-center mb-4 text-sm">
-            ✅ You're at {barNearby.name} in {barNearby.city}
-          </p>
-
-          <div className="flex-1 overflow-y-auto p-2 space-y-4 bg-black">
-            {rootMessages.map((msg) => (
-              <div key={msg.id} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                <div className="flex items-center justify-between">
-                  <div className="text-xl font-bold">{msg.emoji}</div>
-                  <div className="text-xs text-gray-400">{formatTime(msg.timestamp)}</div>
-                </div>
-                <div className="mt-2 text-white text-sm">{msg.text}</div>
-                <div className="flex items-center gap-4 mt-3 text-sm text-pink-400">
-                  <button onClick={() => handleUpvote(msg.id)} className="hover:underline">
-                    ⬆️ {msg.votes || 0}
-                  </button>
-                  <button onClick={() => handleDownvote(msg.id)} className="hover:underline">
-                    ⬇️ {msg.downvotes || 0}
-                  </button>
-                  <button onClick={() => setReplyingTo(msg.id)} className="hover:underline">
-                    💬 Reply
-                  </button>
-                </div>
-
-                {repliesFor(msg.id).map((reply) => (
-                  <div key={reply.id} className="ml-6 mt-3 border-l border-gray-700 pl-3">
-                    <div className="text-sm text-white">{reply.emoji} {reply.text}</div>
-                    <div className="text-xs text-gray-400">{formatTime(reply.timestamp)}</div>
-                  </div>
-                ))}
-              </div>
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-
-          <div className="flex gap-2 items-center mt-4">
-            <input
-              className="flex-1 p-3 rounded-full bg-gray-800 text-white focus:outline-none"
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              placeholder={replyingTo ? "Replying..." : "Type a message..."}
-            />
-            <button onClick={handleSend} className="bg-pink-600 px-5 py-3 rounded-full font-semibold">
-              Send
-            </button>
+              <button
+                onClick={() => setShowCheckInModal(false)}
+                className="px-4 py-2 rounded-lg border border-white/20 text-white hover:bg-white/10 transition"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
     </div>
   );
-}
+};
 
 export default ChatRoom;

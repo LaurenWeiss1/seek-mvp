@@ -17,3 +17,9 @@ code {
     monospace;
 }
 
+body, html, #root {
+  background-color: #0b0d12; /* dark background */
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}

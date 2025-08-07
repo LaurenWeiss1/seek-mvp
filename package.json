@@ -4,12 +4,17 @@
   "private": true,
   "dependencies": {
     "@builder.io/react": "^8.0.10",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@headlessui/react": "^2.2.1",
     "@mapbox/mapbox-gl-geocoder": "^5.0.3",
+    "@react-google-maps/api": "^2.20.7",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",
     "@testing-library/user-event": "^13.5.0",
+    "date-fns": "^4.1.0",
     "firebase": "^11.6.0",
     "iso-3166-1-alpha-2": "^1.0.2",
     "leaflet": "^1.9.4",
@@ -22,6 +27,7 @@
     "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.4.0",
     "react-scripts": "5.0.1",
+    "react-select": "^5.10.2",
     "web-vitals": "^2.1.4"
   },
   "scripts": {

@@ -1,123 +1,103 @@
-import { useParams } from "react-router-dom";
-import { useEffect, useState } from "react";
-import { db } from "./firebase";
-import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  orderBy
-} from "firebase/firestore";
+import React, { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { db } from './firebase';
 
-function BarView() {
+const BarView = () => {
   const { barName } = useParams();
+  const navigate = useNavigate();
   const [checkIns, setCheckIns] = useState([]);
-  const [filteredResults, setFilteredResults] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // Filters
-  const [genderFilter, setGenderFilter] = useState("");
-  const [sexualityFilter, setSexualityFilter] = useState("");
-  const [ageMin, setAgeMin] = useState("");
-  const [ageMax, setAgeMax] = useState("");
+  const isValidBar =
+    typeof barName === 'string' &&
+    barName.trim() !== '' &&
+    barName !== 'none';
 
+  // 🔒 Scroll lock if barName === 'none'
   useEffect(() => {
+    if (barName === 'none') {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'auto';
+    }
+    return () => {
+      document.body.style.overflow = 'auto';
+    };
+  }, [barName]);
+
+  // 👂 Firestore query (only if valid)
+  useEffect(() => {
+    if (!isValidBar) {
+      setCheckIns([]);
+      setLoading(false);
+      return;
+    }
+
     const q = query(
-      collection(db, "checkins"),
-      where("bar", "==", barName),
-      orderBy("timestamp", "desc")
+      collection(db, 'checkins'),
+      where('bar', '==', barName),
+      orderBy('timestamp', 'desc')
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map((doc) => doc.data());
       setCheckIns(data);
+      setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [barName]);
+  }, [barName, isValidBar]);
 
-  // Apply filters
-  useEffect(() => {
-    let results = checkIns;
+  if (typeof barName === 'undefined') {
+    return null;
+  }
 
-    if (genderFilter) {
-      results = results.filter((p) =>
-        p.gender?.toLowerCase() === genderFilter.toLowerCase()
-      );
-    }
-
-    if (sexualityFilter) {
-      results = results.filter((p) =>
-        p.sexuality?.toLowerCase() === sexualityFilter.toLowerCase()
-      );
-    }
-
-    if (ageMin) {
-      results = results.filter((p) => parseInt(p.age) >= parseInt(ageMin));
-    }
-
-    if (ageMax) {
-      results = results.filter((p) => parseInt(p.age) <= parseInt(ageMax));
-    }
-
-    setFilteredResults(results);
-  }, [checkIns, genderFilter, sexualityFilter, ageMin, ageMax]);
-
+if (!isValidBar) {
   return (
-    <div style={{ padding: 20 }}>
-      <h2>Who's at {barName}</h2>
-
-      <div style={{ marginBottom: 20 }}>
-        <label>Filter by Gender:</label><br />
-        <input
-          type="text"
-          value={genderFilter}
-          onChange={(e) => setGenderFilter(e.target.value)}
-          placeholder="e.g. woman"
-        /><br />
-
-        <label>Filter by Sexuality:</label><br />
-        <input
-          type="text"
-          value={sexualityFilter}
-          onChange={(e) => setSexualityFilter(e.target.value)}
-          placeholder="e.g. queer, straight, gay"
-        /><br />
-
-        <label>Filter by Age Range:</label><br />
-        <input
-          type="number"
-          value={ageMin}
-          onChange={(e) => setAgeMin(e.target.value)}
-          placeholder="Min age"
-        />
-        <input
-          type="number"
-          value={ageMax}
-          onChange={(e) => setAgeMax(e.target.value)}
-          placeholder="Max age"
-          style={{ marginLeft: 10 }}
-        />
-      </div>
-
-      {filteredResults.map((person, index) => (
-        <div
-          key={index}
-          style={{
-            marginBottom: 10,
-            border: "1px solid #ccc",
-            padding: 10,
-            borderRadius: 5
-          }}
-        >
-          <p><strong>Name:</strong> {person.name || "Anonymous"}</p>
-          <p><strong>Age:</strong> {person.age}</p>
-          <p><strong>Gender:</strong> {person.gender}</p>
-          <p><strong>Sexuality:</strong> {person.sexuality}</p>
-          <p><strong>Hometown:</strong> {person.hometown}</p>
-        </div>
-      ))}
+    <div className="fixed inset-0 z-50 flex flex-col justify-center items-center bg-black text-white text-center px-4 overflow-hidden">
+      <h2 className="text-xl font-bold mb-6">
+        You're not currently checked into a bar.
+      </h2>
+      <button
+        onClick={() => navigate('/checkin')}
+        className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-500 transition"
+      >
+        Check in now
+      </button>
     </div>
   );
 }
+
+
+  // ⏳ Loading real bar check-ins
+  if (loading) {
+    return <p className="text-center mt-4">Loading check-ins...</p>;
+  }
+
+  // ✅ Checked into a bar
+  return (
+    <div className="p-4">
+      <h2 className="text-xl font-bold mb-4">Check-ins at {barName}</h2>
+      {checkIns.length === 0 ? (
+        <p>No one is checked in here yet.</p>
+      ) : (
+        <ul className="space-y-2">
+          {checkIns.map((checkIn, index) => (
+            <li key={index} className="border p-2 rounded">
+              <p>{checkIn.name}, {checkIn.age}</p>
+              <p>{checkIn.college} • {checkIn.hometown}</p>
+              <p className="text-sm text-gray-500">
+                {checkIn.timestamp?.toDate
+                  ? new Date(checkIn.timestamp.toDate()).toLocaleTimeString()
+                  : 'Unknown time'}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
 
 export default BarView;

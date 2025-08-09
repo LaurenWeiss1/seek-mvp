@@ -1,12 +1,12 @@
 import { useState } from "react";
-import CheckInCityBayAreaOnly from "./CheckInCityBayAreaOnly";
+import CheckIn from "./CheckIn";
 
 function CheckInLanding({ onComplete }) {
   const [started, setStarted] = useState(false);
 
   if (started) {
     // Show check-in flow
-    return <CheckInCityBayAreaOnly onComplete={onComplete} />;
+    return <CheckIn onComplete={onComplete} />;
   }
 
   return (

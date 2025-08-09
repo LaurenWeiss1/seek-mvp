@@ -31,7 +31,6 @@ import EventSubmission from './EventSubmission';
 import SubmitForm from "./SubmitForm";
 import ModeratorDashboard from "./ModeratorDashboard";
 import MapView from "./MapView";
-import CheckInCityBayAreaOnly from './CheckInCityBayAreaOnly';
 import BarSearchPage from './pages/BarSearchPage';
 
 signInAnonymously(auth)
@@ -172,7 +171,6 @@ function App() {
           {showCheckIn ? (
             <>
               <Route path="*" element={<Navigate to="/city" replace />} />
-              <Route path="/city" element={<CheckInCityBayAreaOnly onComplete={handleCheckInComplete} />} />
               <Route path="/checkin" element={<CheckIn onComplete={handleCheckInComplete} />} />
             </>
           ) : (
@@ -191,7 +189,7 @@ function App() {
               <Route path="/moderator" element={<ModeratorDashboard />} />
               <Route path="/test-seed" element={<TestSeed />} />
               <Route path="/map" element={<MapView />} />
-              <Route path="/city" element={<CheckInCityBayAreaOnly />} />
+              <Route path="/city" element={<CheckIn/>} />
               <Route path="/checkin-landing" element={<CheckInLanding />} />
               <Route path="/search" element={<BarSearchPage />} />
               <Route path="/bar/none" element={<BarFeed />} />

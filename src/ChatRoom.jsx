@@ -12,7 +12,6 @@ import {
 import { db, auth } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
-const funEmojis = ["🐸", "🦊", "🐼", "🐯", "🦄", "🐵", "🐙", "🐶", "🐱", "🐻", "🐧"];
 const profanityList = ['badword1', 'badword2']; // Add more filters as needed
 
 const ChatRoom = () => {
@@ -29,6 +28,7 @@ const ChatRoom = () => {
       ? bar ? `chatrooms/bar-${bar}` : null
       : city ? `chatrooms/city-${city}` : null;
 
+  // Handle changes for city and bar data
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
       if (u) {
@@ -43,6 +43,7 @@ const ChatRoom = () => {
     return () => unsubscribeAuth();
   }, []);
 
+  // Fetch messages based on the current collection path
   useEffect(() => {
     if (!collectionPath) return; // Don't run if path is invalid
 
@@ -53,6 +54,7 @@ const ChatRoom = () => {
     return () => unsub();
   }, [collectionPath]);
 
+  // Filter profanity from messages
   const filterMessage = (text) => {
     return profanityList.reduce(
       (acc, bad) => acc.replace(new RegExp(bad, 'gi'), '****'),
@@ -60,6 +62,7 @@ const ChatRoom = () => {
     );
   };
 
+  // Send a new message
   const sendMessage = async () => {
     if (!message.trim()) return;
     const cleanText = filterMessage(message);
@@ -70,6 +73,23 @@ const ChatRoom = () => {
       timestamp: serverTimestamp()
     });
     setMessage('');
+  };
+
+  // Handle mode change with validation
+  const handleChatModeChange = (mode) => {
+    if (mode === 'bar' && !bar) {
+      setShowCheckInModal(true); // Prompt to check-in if no bar is selected
+    } else if (mode === 'city' && !city) {
+      alert('Please select a city first.'); // Prompt to select city
+    } else {
+      setChatMode(mode);
+    }
+  };
+
+  // Reset bar when city changes
+  const handleCityChange = (newCity) => {
+    setCity(newCity);
+    setBar(''); // Reset the bar when the city changes
   };
 
   return (
@@ -94,7 +114,7 @@ const ChatRoom = () => {
         {/* Mode Toggle */}
         <div className="flex justify-center mb-4 gap-2">
           <button
-            onClick={() => setChatMode('city')}
+            onClick={() => handleChatModeChange('city')}
             className={`px-4 py-2 rounded-lg text-sm font-semibold ${
               chatMode === 'city'
                 ? 'bg-[#A1C5E6] text-black'
@@ -104,13 +124,7 @@ const ChatRoom = () => {
             Chat in {city || 'City'}
           </button>
           <button
-            onClick={() => {
-              if (!bar) {
-                setShowCheckInModal(true);
-              } else {
-                setChatMode('bar');
-              }
-            }}
+            onClick={() => handleChatModeChange('bar')}
             className={`px-4 py-2 rounded-lg text-sm font-semibold ${
               chatMode === 'bar'
                 ? 'bg-[#A1C5E6] text-black'
@@ -121,26 +135,7 @@ const ChatRoom = () => {
           </button>
         </div>
 
-        {!userEmoji && (
-          <div className="mb-6 text-center">
-            <p className="mb-3 text-sm text-gray-300">Choose your emoji identity:</p>
-            <div className="flex flex-wrap justify-center gap-3">
-              {funEmojis.map((emoji) => (
-                <button
-                  key={emoji}
-                  onClick={() => {
-                    setUserEmoji(emoji);
-                    localStorage.setItem("seek-user-emoji", emoji);
-                  }}
-                  className="text-2xl hover:scale-110 transition"
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
+        {/* Display messages */}
         <div className="space-y-3 mb-6">
           {messages.map((msg, i) => (
             <div
@@ -158,6 +153,7 @@ const ChatRoom = () => {
           ))}
         </div>
 
+        {/* Message input */}
         <div className="flex items-center gap-3">
           <input
             value={message}
@@ -165,12 +161,12 @@ const ChatRoom = () => {
             onKeyDown={e => e.key === 'Enter' && sendMessage()}
             placeholder="Say something..."
             className="flex-1 p-3 rounded-xl bg-white/5 border border-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={!userEmoji}
+            disabled={false}
           />
           <button
             onClick={sendMessage}
             className="bg-[#A1C5E6] text-black font-semibold px-5 py-3 rounded-xl disabled:opacity-50 hover:scale-105 transition"
-            disabled={!userEmoji || !message.trim()}
+            disabled={!message.trim()}
           >
             Send
           </button>

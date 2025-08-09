@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { auth, db } from './firebase';
 import Select from 'react-select';
 import Papa from 'papaparse';
@@ -26,7 +26,6 @@ const cityBarDataSources = {
   Berkeley: "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=1529534222&single=true&output=csv",
   "San Francisco": "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=1713497672&single=true&output=csv",
   Oakland: "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=498638698&single=true&output=csv",
-  //Marin: "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=447070284&single=true&output=csv",
   "Palo Alto": "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=543562265&single=true&output=csv"
 };
 
@@ -63,15 +62,12 @@ async function getLastCheckin(uid) {
 
 function CheckIn({ onComplete }) {
   const navigate = useNavigate();
-  const location = useLocation();
-  const queryParams = new URLSearchParams(location.search);
-  const selectedCity = queryParams.get("city") || "";
 
   const [user, setUser] = useState(null);
   const [recentCheckin, setRecentCheckin] = useState(null);
   const [formData, setFormData] = useState({
     name: '', age: '', gender: '', sexuality: '', homeState: '',
-    homeCountry: '', college: '', city: selectedCity, bar: ''
+    homeCountry: '', college: '', city: '', bar: ''
   });
   const [bars, setBars] = useState([]);
   const [colleges, setColleges] = useState([]);
@@ -82,10 +78,16 @@ function CheckIn({ onComplete }) {
   const [showNotAtBarPage, setShowNotAtBarPage] = useState(false);
   const [showErrorPopup, setShowErrorPopup] = useState(false);
 
+  // Always clear city and bar when CheckIn is shown
   useEffect(() => {
-    const saved = localStorage.getItem('checkinFormData');
-    if (saved) setFormData(JSON.parse(saved));
+    setFormData(prev => ({
+      ...prev,
+      city: '',
+      bar: ''
+    }));
+    setBars([]);
   }, []);
+
   useEffect(() => {
     localStorage.setItem('checkinFormData', JSON.stringify(formData));
   }, [formData]);
@@ -119,13 +121,13 @@ function CheckIn({ onComplete }) {
             setRecentCheckin(last);
             setFormData(prev => ({
               ...prev,
-              bar: last.bar || prev.bar,
+              // REMOVE bar: last.bar || prev.bar,
               gender: last.gender || prev.gender,
               sexuality: last.sexuality || prev.sexuality,
               homeState: last.homeState || prev.homeState,
               homeCountry: last.homeCountry || prev.homeCountry,
-              college: last.college || prev.college,
-              city: last.city || prev.city
+              college: last.college || prev.college
+              // Do NOT set city or bar here!
             }));
           }
         }
@@ -136,11 +138,12 @@ function CheckIn({ onComplete }) {
           const hoursAgo = differenceInHours(new Date(), new Date(parsed.timestamp));
           if (hoursAgo < 6) {
             setRecentCheckin(parsed);
-            setFormData(prev => ({
-              ...prev,
-              bar: parsed.bar || prev.bar,
-              city: parsed.city || prev.city
-            }));
+            // REMOVE bar/city restoration here!
+            // setFormData(prev => ({
+            //   ...prev,
+            //   bar: parsed.bar || prev.bar,
+            //   city: parsed.city || prev.city
+            // }));
           }
         }
       }
@@ -149,9 +152,11 @@ function CheckIn({ onComplete }) {
   }, []);
 
   useEffect(() => {
-    if (!selectedCity || !cityBarDataSources[selectedCity]) return;
-
-    Papa.parse(cityBarDataSources[selectedCity], {
+    if (!formData.city || !cityBarDataSources[formData.city]) {
+      setBars([]);
+      return;
+    }
+    Papa.parse(cityBarDataSources[formData.city], {
       download: true,
       header: true,
       complete: (results) => {
@@ -164,7 +169,7 @@ function CheckIn({ onComplete }) {
         setBars(barList);
       }
     });
-  }, [selectedCity]);
+  }, [formData.city]);
 
   useEffect(() => {
     const collegeSheet = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=576309257&single=true&output=csv";
@@ -180,7 +185,18 @@ function CheckIn({ onComplete }) {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    if (name === 'city') {
+      setBars([]);
+      setFormData(prev => ({
+        ...prev,
+        city: value,
+        bar: ''
+      }));
+      setBarNotListed(false);
+      setCustomBar('');
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -225,12 +241,12 @@ function CheckIn({ onComplete }) {
     if (user) {
       await setDoc(doc(db, 'users', user.uid), {
         ...formData,
-        lastCheckIn: { bar: finalBar, city: selectedCity, timestamp: new Date().toISOString() }
+        lastCheckIn: { bar: finalBar, city: formData.city, timestamp: new Date().toISOString() }
       }, { merge: true });
     } else {
       localStorage.setItem('anonRecentCheckin', JSON.stringify({
         bar: finalBar,
-        city: selectedCity,
+        city: formData.city,
         timestamp: new Date().toISOString()
       }));
     }
@@ -245,7 +261,7 @@ function CheckIn({ onComplete }) {
     };
 
     if (onComplete) {
-      onComplete({ bar: finalBar, city: selectedCity, userInfo });
+      onComplete({ bar: finalBar, city: formData.city, userInfo });
     } else {
       alert(`✅ You’re checked in at ${finalBar}!`);
       navigate(`/bar/${finalBar}`);
@@ -274,7 +290,7 @@ function CheckIn({ onComplete }) {
               localStorage.setItem('notAtBar', 'true');
               setNotAtBar(false);
               setShowNotAtBarPage(false);
-              navigate('/bar/none'); // <-- Go to the special BarView page
+              navigate('/bar/none');
             }}
           >
             Continue to app
@@ -310,7 +326,7 @@ function CheckIn({ onComplete }) {
                   localStorage.setItem('notAtBar', 'true');
                   setShowErrorPopup(false);
                   setError('');
-                  navigate('/bar/none'); // <-- Immediately go to BarView "none"
+                  navigate('/bar/none');
                 }}
               >
                 I'm not at a bar
@@ -349,11 +365,14 @@ function CheckIn({ onComplete }) {
             <input name="homeCountry" value={formData.homeCountry} onChange={handleChange} placeholder="Home Country" className="w-full p-3 rounded-xl bg-white/10 border border-white/20 text-white" />
           )}
 
+          {/* College searchable dropdown before city */}
           <Select
-            options={colleges.map(c => ({ label: c, value: c }))}
+            name="college"
+            inputId="college"
+            options={colleges.map(college => ({ label: college, value: college }))}
             value={formData.college ? { label: formData.college, value: formData.college } : null}
             onChange={selected => setFormData(prev => ({ ...prev, college: selected ? selected.value : '' }))}
-            placeholder="Search or select your college"
+            placeholder="Select College/University"
             isClearable
             isSearchable
             styles={{
@@ -364,7 +383,23 @@ function CheckIn({ onComplete }) {
             }}
           />
 
+          {/* City dropdown */}
+          <select
+            name="city"
+            value={formData.city}
+            onChange={handleChange}
+            className="w-full p-3 rounded-xl bg-white text-black"
+            required
+          >
+            <option value="">Select City</option>
+            <option value="San Francisco">San Francisco</option>
+            <option value="Berkeley">Berkeley</option>
+            <option value="Oakland">Oakland</option>
+            <option value="Palo Alto">Palo Alto</option>
+          </select>
+
           <Select
+            key={formData.city}
             options={bars.slice(0, 10)}
             value={formData.bar ? { label: formData.bar, value: formData.bar } : null}
             onChange={selected => setFormData(prev => ({ ...prev, bar: selected ? selected.value : '' }))}
@@ -388,7 +423,9 @@ function CheckIn({ onComplete }) {
             <span className="underline cursor-pointer" onClick={() => setBarNotListed(true)}>Add it manually</span>
           </div>
 
-          <button type="submit" className="w-full text-white py-3 rounded-xl transition transform hover:scale-105" style={{ backgroundColor: '#A1C5E6', color: '#000' }}>Submit</button>
+          <button type="submit" className="w-full text-white py-3 rounded-xl transition transform hover:scale-105" style={{ backgroundColor: '#A1C5E6', color: '#000' }}>
+            Submit
+          </button>
         </form>
       </div>
     </div>

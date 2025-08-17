@@ -9,7 +9,6 @@ const cityBarDataSources = {
   Berkeley: "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=1529534222&single=true&output=csv",
   "San Francisco": "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=1713497672&single=true&output=csv",
   Oakland: "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=498638698&single=true&output=csv",
-  //Marin: "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=447070284&single=true&output=csv",
   "Palo Alto": "https://docs.google.com/spreadsheets/d/e/2PACX-1vS3JWZ57czLyQw2Ax517LfV9a8H15xkvdbXPiPk4SFUogpwG51kZ7-xj2bhtuRN7VO2JQjl-qPHLi5X/pub?gid=543562265&single=true&output=csv"
 };
 
@@ -39,9 +38,7 @@ function BarSearchPage() {
 
         setBars(cleanedBars);
 
-        const uniqueTypes = Array.from(
-          new Set(cleanedBars.map(bar => bar.type))
-        ).sort();
+        const uniqueTypes = Array.from(new Set(cleanedBars.map(bar => bar.type))).sort();
         setAllTypes(uniqueTypes);
         setSelectedTypes(uniqueTypes); // show all by default
       }
@@ -54,10 +51,16 @@ function BarSearchPage() {
 
   const toggleType = (type) => {
     setSelectedTypes(prev =>
-      prev.includes(type)
-        ? prev.filter(t => t !== type)
-        : [...prev, type]
+      prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
     );
+  };
+
+  const openBar = (barName) => {
+    if (!barName) return;
+    if (selectedCity) localStorage.setItem('selectedCity', selectedCity);
+    navigate(`/barview/${encodeURIComponent(barName)}`, {
+      state: { city: selectedCity || localStorage.getItem('selectedCity') || '' }
+    });
   };
 
   return (
@@ -69,7 +72,9 @@ function BarSearchPage() {
         options={bayAreaCities.map(c => ({ label: c, value: c }))}
         value={selectedCity ? { label: selectedCity, value: selectedCity } : null}
         onChange={selected => {
-          setSelectedCity(selected.value);
+          const city = selected?.value || null;
+          setSelectedCity(city);
+          if (city) localStorage.setItem('selectedCity', city);
           setSearchTerm("");
         }}
         placeholder="Select a city"
@@ -135,8 +140,11 @@ function BarSearchPage() {
           {filteredBars.map((bar, index) => (
             <div
               key={index}
-              onClick={() => navigate(`/bar/${bar.name}`)}
+              onClick={() => openBar(bar.name)}
               className="bg-white/10 border border-white/10 rounded-xl p-4 hover:bg-white/20 transition cursor-pointer"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && openBar(bar.name)}
             >
               <h2 className="text-lg font-semibold">{bar.name}</h2>
               <p className="text-sm text-gray-300">{bar.type}</p>

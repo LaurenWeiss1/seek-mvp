@@ -60,7 +60,11 @@ async function getLastCheckin(uid) {
   return snapshot.docs[0].data();
 }
 
+console.log('[CheckIn] module loaded');
+
 function CheckIn({ onComplete }) {
+  console.log('[CheckIn] render start');
+
   const navigate = useNavigate();
 
   const [user, setUser] = useState(null);
@@ -77,23 +81,19 @@ function CheckIn({ onComplete }) {
   const [notAtBar, setNotAtBar] = useState(false);
   const [showNotAtBarPage, setShowNotAtBarPage] = useState(false);
   const [showErrorPopup, setShowErrorPopup] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   // Always clear city and bar when CheckIn is shown
   useEffect(() => {
-    setFormData(prev => ({
-      ...prev,
-      city: '',
-      bar: ''
-    }));
+    console.log('[CheckIn] mount: clearing city/bar');
+    setFormData(prev => ({ ...prev, city: '', bar: '' }));
     setBars([]);
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('checkinFormData', JSON.stringify(formData));
-  }, [formData]);
-
-  useEffect(() => {
+    console.log('[CheckIn] auth effect subscribing');
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      console.log('[CheckIn] onAuthStateChanged', !!currentUser);
       setUser(currentUser);
 
       if (currentUser) {
@@ -115,20 +115,22 @@ function CheckIn({ onComplete }) {
         }
 
         const last = await getLastCheckin(currentUser.uid);
-        if (last) {
-          const hoursAgo = differenceInHours(new Date(), last.timestamp.toDate());
-          if (hoursAgo < 6) {
-            setRecentCheckin(last);
-            setFormData(prev => ({
-              ...prev,
-              // REMOVE bar: last.bar || prev.bar,
-              gender: last.gender || prev.gender,
-              sexuality: last.sexuality || prev.sexuality,
-              homeState: last.homeState || prev.homeState,
-              homeCountry: last.homeCountry || prev.homeCountry,
-              college: last.college || prev.college
-              // Do NOT set city or bar here!
-            }));
+        if (last && last.timestamp && typeof last.timestamp.toDate === 'function') {
+          try {
+            const hoursAgo = differenceInHours(new Date(), last.timestamp.toDate());
+            if (hoursAgo < 6) {
+              setRecentCheckin(last);
+              setFormData(prev => ({
+                ...prev,
+                gender: last.gender || prev.gender,
+                sexuality: last.sexuality || prev.sexuality,
+                homeState: last.homeState || prev.homeState,
+                homeCountry: last.homeCountry || prev.homeCountry,
+                college: last.college || prev.college
+              }));
+            }
+          } catch (e) {
+            console.warn('Failed to process last checkin timestamp', e);
           }
         }
       } else {
@@ -138,17 +140,11 @@ function CheckIn({ onComplete }) {
           const hoursAgo = differenceInHours(new Date(), new Date(parsed.timestamp));
           if (hoursAgo < 6) {
             setRecentCheckin(parsed);
-            // REMOVE bar/city restoration here!
-            // setFormData(prev => ({
-            //   ...prev,
-            //   bar: parsed.bar || prev.bar,
-            //   city: parsed.city || prev.city
-            // }));
           }
         }
       }
     });
-    return () => unsubscribe();
+    return () => { console.log('[CheckIn] auth unsubscribe'); unsubscribe(); };
   }, []);
 
   useEffect(() => {
@@ -201,14 +197,19 @@ function CheckIn({ onComplete }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const finalBar = barNotListed ? customBar : formData.bar;
-
+    if (submitting) return;
+    const finalBar = barNotListed ? customBar.trim() : formData.bar;
     if (!finalBar && !notAtBar) {
       setError("Oops! You must select which bar you're at.");
       setShowErrorPopup(true);
       return;
     }
-    setError("");
+    if (barNotListed && finalBar.length > 60) {
+      setError("Bar name too long (max 60).");
+      setShowErrorPopup(true);
+      return;
+    }
+    setError('');
     setShowErrorPopup(false);
 
     if (notAtBar) {
@@ -216,58 +217,87 @@ function CheckIn({ onComplete }) {
       return;
     }
 
-    if (!user) {
-      const wantsProfile = window.confirm('Want to save your info and create a profile?');
-      if (wantsProfile) {
-        alert('Redirect to sign up or create an account form here');
-        return;
-      } else {
+    try {
+      setSubmitting(true);
+
+      if (!user) {
         try {
           await signInAnonymously(auth);
-        } catch (error) {
-          console.error('Error signing in anonymously:', error);
+        } catch (authErr) {
+          console.error('Anon sign-in failed', authErr);
+          setError('Sign-in failed. Try again.');
+          setShowErrorPopup(true);
+          setSubmitting(false);
           return;
         }
       }
-    }
 
-    await addDoc(collection(db, 'checkins'), {
-      ...formData,
-      bar: finalBar,
-      uid: user ? user.uid : null,
-      timestamp: serverTimestamp()
-    });
-
-    if (user) {
-      await setDoc(doc(db, 'users', user.uid), {
+      await addDoc(collection(db, 'checkins'), {
         ...formData,
-        lastCheckIn: { bar: finalBar, city: formData.city, timestamp: new Date().toISOString() }
-      }, { merge: true });
-    } else {
-      localStorage.setItem('anonRecentCheckin', JSON.stringify({
         bar: finalBar,
-        city: formData.city,
-        timestamp: new Date().toISOString()
-      }));
+        uid: auth.currentUser ? auth.currentUser.uid : null,
+        timestamp: serverTimestamp(),
+        normalizedBar: finalBar.toLowerCase().trim()
+      });
+
+      if (auth.currentUser) {
+        await setDoc(doc(db, 'users', auth.currentUser.uid), {
+          name: formData.name,
+          age: formData.age,
+          gender: formData.gender,
+          sexuality: formData.sexuality,
+          college: formData.college,
+          homeState: formData.homeState,
+          homeCountry: formData.homeCountry,
+          lastCheckIn: { bar: finalBar, city: formData.city, ts: new Date().toISOString() }
+        }, { merge: true });
+      } else {
+        localStorage.setItem('anonRecentCheckin', JSON.stringify({
+          bar: finalBar,
+          city: formData.city,
+          timestamp: new Date().toISOString()
+        }));
+      }
+
+      const userInfo = {
+        gender: formData.gender,
+        sexuality: formData.sexuality,
+        college: formData.college,
+        homeState: formData.homeState,
+        homeCountry: formData.homeCountry
+      };
+
+      localStorage.removeItem('notAtBar');
+
+      // Mark check-in so App.js stops redirecting to landing
+      localStorage.setItem('checkInTimestamp', new Date().toISOString());
+      localStorage.setItem('lastCheckInBar', finalBar);
+      localStorage.setItem('lastCheckInCity', formData.city);
+      localStorage.setItem('userInfo', JSON.stringify(userInfo));
+      // NEW: explicit bypass flag
+      localStorage.setItem('skipCheckInGate', '1');
+
+      const targetBar = finalBar || 'none';
+// NEW: persist selectedCity as well
+localStorage.setItem('selectedCity', formData.city);
+
+if (onComplete) {
+  onComplete({ bar: finalBar, city: formData.city, userInfo });
+}
+
+// ⬇️ CHANGED: go to the bar page, not HotTonight, and use /barview/:barName
+navigate(`/barview/${encodeURIComponent(finalBar)}`, {
+  replace: true,
+  state: { city: formData.city } // pass city along for BarView to use immediately
+});
+
+    } catch (err) {
+      console.error('Check-in failed', err);
+      setError('Failed to submit. Retry.');
+      setShowErrorPopup(true);
+    } finally {
+      setSubmitting(false);
     }
-
-    const userInfo = {
-      gender: formData.gender,
-      sexuality: formData.sexuality,
-      college: formData.college,
-      homeState: formData.homeState,
-      homeCountry: formData.homeCountry,
-      homeCity: formData.homeCity
-    };
-
-    if (onComplete) {
-      onComplete({ bar: finalBar, city: formData.city, userInfo });
-    } else {
-      alert(`✅ You’re checked in at ${finalBar}!`);
-      navigate(`/bar/${finalBar}`);
-    }
-
-    localStorage.removeItem('notAtBar');
   };
 
   if (showNotAtBarPage) {
@@ -423,8 +453,8 @@ function CheckIn({ onComplete }) {
             <span className="underline cursor-pointer" onClick={() => setBarNotListed(true)}>Add it manually</span>
           </div>
 
-          <button type="submit" className="w-full text-white py-3 rounded-xl transition transform hover:scale-105" style={{ backgroundColor: '#A1C5E6', color: '#000' }}>
-            Submit
+          <button type="submit" disabled={submitting} className="w-full text-white py-3 rounded-xl transition transform hover:scale-105 disabled:opacity-50" style={{ backgroundColor: '#A1C5E6', color: '#000' }}>
+            {submitting ? 'Submitting...' : 'Submit'}
           </button>
         </form>
       </div>

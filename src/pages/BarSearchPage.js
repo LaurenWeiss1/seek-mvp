@@ -30,15 +30,26 @@ function BarSearchPage() {
       complete: (results) => {
         const cleanedBars = results.data
           .map(row => {
-            const name = row.bar?.trim();
-            const type = row.type?.trim() || "Cocktail bar";
-            return name ? { name, type } : null;
+            const name = (row.bar || row["bar name"] || row.Bar || row["Bar Name"] || "").trim();
+            if (!name) return null;
+
+            // Multi-type parse: separated by ";"
+            // e.g., "Sports Bar; Dive Bar; College"
+            const rawType = (row.type || row.Type || row["bar type"] || row["Bar Type"] || "").trim();
+            const types = rawType
+              ? rawType.split(";").map(t => t.trim()).filter(Boolean)
+              : ["Cocktail bar"]; // default if blank
+
+            return { name, type: rawType || "Cocktail bar", types };
           })
           .filter(Boolean);
 
         setBars(cleanedBars);
 
-        const uniqueTypes = Array.from(new Set(cleanedBars.map(bar => bar.type))).sort();
+        const typeSet = new Set();
+        cleanedBars.forEach(bar => bar.types.forEach(t => typeSet.add(t)));
+        const uniqueTypes = Array.from(typeSet).sort();
+
         setAllTypes(uniqueTypes);
         setSelectedTypes(uniqueTypes); // show all by default
       }
@@ -46,13 +57,18 @@ function BarSearchPage() {
   }, [selectedCity]);
 
   const filteredBars = bars
-    .filter(bar => selectedTypes.includes(bar.type))
+    .filter(bar => bar.types.some(t => selectedTypes.includes(t)))
     .filter(bar => bar.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
   const toggleType = (type) => {
     setSelectedTypes(prev =>
       prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
     );
+  };
+
+  const seeAllBars = () => {
+    setSelectedTypes(allTypes);
+    setSearchTerm("");
   };
 
   const openBar = (barName) => {
@@ -107,12 +123,24 @@ function BarSearchPage() {
       {/* Filter Toggle */}
       {selectedCity && (
         <div className="mt-4">
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="px-4 py-2 rounded-lg border border-white/20 bg-white/10 hover:bg-white/20 transition"
-          >
-            {showFilters ? "Hide Filters" : "Filter by Type"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="px-4 py-2 rounded-lg border border-white/20 bg-white/10 hover:bg-white/20 transition"
+            >
+              {showFilters ? "Hide Filters" : "Filter by Type"}
+            </button>
+
+            {/* See all bars button */}
+            <button
+              onClick={seeAllBars}
+              disabled={allTypes.length === 0}
+              className="px-4 py-2 rounded-lg border border-white/20 bg-blue-500/80 hover:bg-blue-500 transition disabled:opacity-50"
+              title="Show every bar regardless of type and clear search"
+            >
+              See all bars
+            </button>
+          </div>
 
           {showFilters && (
             <div className="mt-4 flex flex-wrap gap-2">
@@ -139,7 +167,7 @@ function BarSearchPage() {
         <div className="mt-6 space-y-4">
           {filteredBars.map((bar, index) => (
             <div
-              key={index}
+              key={`${bar.name}-${index}`}
               onClick={() => openBar(bar.name)}
               className="bg-white/10 border border-white/10 rounded-xl p-4 hover:bg-white/20 transition cursor-pointer"
               role="button"
@@ -147,7 +175,7 @@ function BarSearchPage() {
               onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && openBar(bar.name)}
             >
               <h2 className="text-lg font-semibold">{bar.name}</h2>
-              <p className="text-sm text-gray-300">{bar.type}</p>
+              <p className="text-sm text-gray-300">{bar.types.join(", ")}</p>
             </div>
           ))}
           {filteredBars.length === 0 && (

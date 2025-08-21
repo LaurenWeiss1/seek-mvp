@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from './firebase';
 import Select from 'react-select';
+import AsyncSelect from 'react-select/async';
 import Papa from 'papaparse';
 import {
   signInAnonymously,
@@ -60,6 +61,115 @@ async function getLastCheckin(uid) {
   return snapshot.docs[0].data();
 }
 
+// ================== GViz helpers (with robust URL + multi bar types) ==================
+
+const BAR_MIN_CHARS = 1;               // fire searches quickly
+const INITIAL_FETCH_LIMIT = 50;
+const TYPING_FETCH_LIMIT = 50;
+const DEBOUNCE_MS = 220;
+
+// Parse a bar-type string into an array: supports commas, pipes, slashes, semicolons
+const parseBarTypesString = (s) => {
+  if (!s) return [];
+  return s
+    .split(/[,/|;]+/g)
+    .map(t => t.trim())
+    .filter(Boolean);
+};
+
+// Build a GViz query URL from your published CSV link
+const gvizQueryUrl = (csvUrl, tq) => {
+  // /pub? -> /gviz/tq?
+  let base = csvUrl.replace(/\/pub\?/, '/gviz/tq?');
+  // strip output=csv & single=true & usp=sharing (if present)
+  base = base.replace(/[?&]output=csv/gi, '');
+  base = base.replace(/[?&]single=true/gi, '');
+  base = base.replace(/[?&]usp=sharing/gi, '');
+  base = base.replace(/#.*$/, '');
+  // tidy any leftover "&&" or "?&"
+  base = base.replace(/\?&/, '?').replace(/&&/, '&').replace(/\?$/, '');
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}tqx=out:json&tq=${encodeURIComponent(tq)}`;
+};
+
+// Debounced per-keystroke query. No "city" column dependency; each gid is city-specific.
+const makeBarLoader = (csvUrl, fallbackListRef) => {
+  let timeoutId;
+  let lastController;
+
+  return (inputValue, callback) => {
+    clearTimeout(timeoutId);
+    if (lastController) lastController.abort();
+
+    const needle = (inputValue || '').trim().toLowerCase();
+    const isInitial = needle.length === 0;
+    const limit = isInitial ? INITIAL_FETCH_LIMIT : TYPING_FETCH_LIMIT;
+
+    const whereClause = isInitial
+      ? ''
+      : `where lower(A) contains '${needle.replace(/'/g, "\\'")}'`;
+
+    const tq = `
+      select A,C,D,E
+      ${whereClause}
+      order by A
+      limit ${limit}
+    `;
+    const url = gvizQueryUrl(csvUrl, tq);
+
+    timeoutId = setTimeout(async () => {
+      try {
+        lastController = new AbortController();
+        const res = await fetch(url, { signal: lastController.signal });
+        const txt = await res.text();
+        const json = JSON.parse(txt.replace(/^[^{]+/, '').replace(/;?\s*$/, ''));
+        const rows = json.table?.rows || [];
+
+        let options = rows.map(r => {
+          const name = (r.c[0]?.v || '').toString().trim();            // A
+          const lat  = r.c[1]?.v != null ? Number(r.c[1].v) : null;    // C
+          const lng  = r.c[2]?.v != null ? Number(r.c[2].v) : null;    // D
+          const typeRaw = (r.c[3]?.v || '').toString().trim();         // E
+          const barTypes = parseBarTypesString(typeRaw);
+          return { value: name, label: name, meta: { name, lat, lng, barTypes, typeRaw } };
+        });
+
+        // Fallback to CSV-parsed list if GViz returns nothing (so menu isn't blank)
+        if (options.length === 0 && fallbackListRef.current.length > 0) {
+          const src = fallbackListRef.current;
+          const filtered = isInitial
+            ? src.slice(0, INITIAL_FETCH_LIMIT)
+            : src.filter(o => o.label.toLowerCase().includes(needle)).slice(0, TYPING_FETCH_LIMIT);
+          options = filtered.map(o => ({
+            value: o.value,
+            label: o.label,
+            meta: { name: o.label, lat: o.lat, lng: o.lng, barTypes: [], typeRaw: '' }
+          }));
+        }
+
+        callback(options);
+      } catch (e) {
+        if (e.name !== 'AbortError') {
+          console.error('GViz fetch/parse error:', e);
+          // hard fallback to CSV-parsed list
+          const src = fallbackListRef.current;
+          const filtered = isInitial
+            ? src.slice(0, INITIAL_FETCH_LIMIT)
+            : src.filter(o => o.label.toLowerCase().includes(needle)).slice(0, TYPING_FETCH_LIMIT);
+          const options = filtered.map(o => ({
+            value: o.value,
+            label: o.label,
+            meta: { name: o.label, lat: o.lat, lng: o.lng, barTypes: [], typeRaw: '' }
+          }));
+          callback(options);
+        }
+      }
+    }, DEBOUNCE_MS);
+  };
+};
+
+// ================================================================================
+
 console.log('[CheckIn] module loaded');
 
 function CheckIn({ onComplete }) {
@@ -82,6 +192,21 @@ function CheckIn({ onComplete }) {
   const [showNotAtBarPage, setShowNotAtBarPage] = useState(false);
   const [showErrorPopup, setShowErrorPopup] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Keep selected bar types (from column E) if you want to store/use them later
+  const [selectedBarTypes, setSelectedBarTypes] = useState([]);
+
+  // A ref mirror of `bars` for GViz fallback
+  const barsRef = React.useRef([]);
+  useEffect(() => { barsRef.current = bars; }, [bars]);
+
+  // Memoized loader for AsyncSelect (GViz + fallback)
+  const barLoadOptions = useMemo(() => {
+    const csvUrl = cityBarDataSources[formData.city];
+    return csvUrl
+      ? makeBarLoader(csvUrl, barsRef)
+      : (inputValue, callback) => callback([]);
+  }, [formData.city]);
 
   // Always clear city and bar when CheckIn is shown
   useEffect(() => {
@@ -157,11 +282,12 @@ function CheckIn({ onComplete }) {
       header: true,
       complete: (results) => {
         const barList = results.data.map(row => ({
-          label: row.bar?.trim(),
-          value: row.bar?.trim(),
-          lat: parseFloat(row.latitude),
-          lng: parseFloat(row.longitude)
+          label: (row.bar || row['bar name'] || row['Bar'] || row['Bar Name'] || '').trim(),
+          value: (row.bar || row['bar name'] || row['Bar'] || row['Bar Name'] || '').trim(),
+          lat: parseFloat(row.latitude ?? row.Latitude ?? row.LATITUDE),
+          lng: parseFloat(row.longitude ?? row.Longitude ?? row.LONGITUDE)
         })).filter(b => b.label && !isNaN(b.lat) && !isNaN(b.lng));
+
         setBars(barList);
       }
     });
@@ -190,6 +316,14 @@ function CheckIn({ onComplete }) {
       }));
       setBarNotListed(false);
       setCustomBar('');
+      setSelectedBarTypes([]);
+    } else if (name === 'age') {
+      const n = parseInt(value, 10);
+      if (isNaN(n)) {
+        setFormData(prev => ({ ...prev, age: '' }));
+      } else {
+        setFormData(prev => ({ ...prev, age: n < 21 ? 21 : n }));
+      }
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
@@ -198,7 +332,35 @@ function CheckIn({ onComplete }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
+
+    if (!formData.name || !formData.name.trim()) {
+      setError("Please enter your name.");
+      setShowErrorPopup(true);
+      return;
+    }
+    if (!formData.age || parseInt(formData.age, 10) < 21) {
+      setError("You must be 21 or older to check in.");
+      setShowErrorPopup(true);
+      return;
+    }
+    if (!formData.gender) {
+      setError("Please select your gender.");
+      setShowErrorPopup(true);
+      return;
+    }
+    if (!formData.sexuality) {
+      setError("Please select your sexuality.");
+      setShowErrorPopup(true);
+      return;
+    }
+    if (!formData.city) {
+      setError("Please select your city.");
+      setShowErrorPopup(true);
+      return;
+    }
+
     const finalBar = barNotListed ? customBar.trim() : formData.bar;
+
     if (!finalBar && !notAtBar) {
       setError("Oops! You must select which bar you're at.");
       setShowErrorPopup(true);
@@ -209,6 +371,7 @@ function CheckIn({ onComplete }) {
       setShowErrorPopup(true);
       return;
     }
+
     setError('');
     setShowErrorPopup(false);
 
@@ -238,6 +401,7 @@ function CheckIn({ onComplete }) {
         uid: auth.currentUser ? auth.currentUser.uid : null,
         timestamp: serverTimestamp(),
         normalizedBar: finalBar.toLowerCase().trim()
+        // If later you want to store barTypes: barTypes: selectedBarTypes
       });
 
       if (auth.currentUser) {
@@ -269,27 +433,22 @@ function CheckIn({ onComplete }) {
 
       localStorage.removeItem('notAtBar');
 
-      // Mark check-in so App.js stops redirecting to landing
       localStorage.setItem('checkInTimestamp', new Date().toISOString());
       localStorage.setItem('lastCheckInBar', finalBar);
       localStorage.setItem('lastCheckInCity', formData.city);
       localStorage.setItem('userInfo', JSON.stringify(userInfo));
-      // NEW: explicit bypass flag
       localStorage.setItem('skipCheckInGate', '1');
 
-      const targetBar = finalBar || 'none';
-// NEW: persist selectedCity as well
-localStorage.setItem('selectedCity', formData.city);
+      localStorage.setItem('selectedCity', formData.city);
 
-if (onComplete) {
-  onComplete({ bar: finalBar, city: formData.city, userInfo });
-}
+      if (onComplete) {
+        onComplete({ bar: finalBar, city: formData.city, userInfo });
+      }
 
-// ⬇️ CHANGED: go to the bar page, not HotTonight, and use /barview/:barName
-navigate(`/barview/${encodeURIComponent(finalBar)}`, {
-  replace: true,
-  state: { city: formData.city } // pass city along for BarView to use immediately
-});
+      navigate(`/barview/${encodeURIComponent(finalBar)}`, {
+        replace: true,
+        state: { city: formData.city }
+      });
 
     } catch (err) {
       console.error('Check-in failed', err);
@@ -349,18 +508,23 @@ navigate(`/barview/${encodeURIComponent(finalBar)}`, {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
             <div className="bg-white text-black rounded-xl shadow-lg p-8 max-w-xs w-full flex flex-col items-center">
               <div className="mb-4 text-lg font-semibold">{error}</div>
-              <button
-                type="button"
-                className="mb-2 py-2 px-4 rounded-xl bg-gray-700 text-white w-full"
-                onClick={() => {
-                  localStorage.setItem('notAtBar', 'true');
-                  setShowErrorPopup(false);
-                  setError('');
-                  navigate('/bar/none');
-                }}
-              >
-                I'm not at a bar
-              </button>
+
+              {/* Show "I'm not at a bar" ONLY when the bar itself is missing */}
+              {error.includes("which bar you're at") && (
+                <button
+                  type="button"
+                  className="mb-2 py-2 px-4 rounded-xl bg-gray-700 text-white w-full"
+                  onClick={() => {
+                    localStorage.setItem('notAtBar', 'true');
+                    setShowErrorPopup(false);
+                    setError('');
+                    navigate('/bar/none');
+                  }}
+                >
+                  I'm not at a bar
+                </button>
+              )}
+
               <button
                 type="button"
                 className="py-2 px-4 rounded-xl bg-gray-300 text-black w-full"
@@ -372,16 +536,47 @@ navigate(`/barview/${encodeURIComponent(finalBar)}`, {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <input name="name" value={formData.name} onChange={handleChange} placeholder="Name" required className="w-full p-3 rounded-xl bg-white/10 border border-white/20 text-white" />
-          <input name="age" value={formData.age} onChange={handleChange} placeholder="Age" required className="w-full p-3 rounded-xl bg-white/10 border border-white/20 text-white" />
+        {/* noValidate so we control errors with the popup */}
+        <form onSubmit={handleSubmit} noValidate className="space-y-6">
+          <input
+            name="name"
+            value={formData.name}
+            onChange={handleChange}
+            placeholder="Name"
+            required
+            className="w-full p-3 rounded-xl bg-white/10 border border-white/20 text-white"
+          />
 
-          <select name="gender" value={formData.gender} onChange={handleChange} className="w-full p-3 rounded-xl bg-white text-black">
+          {/* AGE — enforce 21+ */}
+          <input
+            type="number"
+            name="age"
+            value={formData.age}
+            onChange={handleChange}
+            placeholder="Age"
+            min={21}
+            required
+            className="w-full p-3 rounded-xl bg-white/10 border border-white/20 text-white"
+          />
+
+          {/* Gender (custom-required via JS; keeping markup simple) */}
+          <select
+            name="gender"
+            value={formData.gender}
+            onChange={handleChange}
+            className="w-full p-3 rounded-xl bg-white text-black"
+          >
             <option value="">Select Gender</option>
             {genderOptions.map(g => <option key={g} value={g}>{g}</option>)}
           </select>
 
-          <select name="sexuality" value={formData.sexuality} onChange={handleChange} className="w-full p-3 rounded-xl bg-white text-black">
+          {/* Sexuality (custom-required via JS) */}
+          <select
+            name="sexuality"
+            value={formData.sexuality}
+            onChange={handleChange}
+            className="w-full p-3 rounded-xl bg-white text-black"
+          >
             <option value="">Select Sexuality</option>
             {sexualityOptions.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
@@ -409,7 +604,16 @@ navigate(`/barview/${encodeURIComponent(finalBar)}`, {
               control: base => ({ ...base, backgroundColor: '#1f2937', borderColor: '#374151', color: 'white' }),
               input: base => ({ ...base, color: 'white' }),
               singleValue: base => ({ ...base, color: 'white' }),
-              menu: base => ({ ...base, backgroundColor: '#1f2937', color: 'white' })
+              menu: base => ({ ...base, backgroundColor: '#1f2937', color: 'white' }),
+              option: (provided, state) => ({
+                ...provided,
+                backgroundColor: state.isSelected
+                  ? '#4b5563' // selected
+                  : state.isFocused
+                  ? '#374151' // hover/focus
+                  : 'transparent',
+                color: 'white'
+              })
             }}
           />
 
@@ -428,19 +632,35 @@ navigate(`/barview/${encodeURIComponent(finalBar)}`, {
             <option value="Palo Alto">Palo Alto</option>
           </select>
 
-          <Select
+          {/* Bar Select now Async (GViz + fallback) */}
+          <AsyncSelect
             key={formData.city}
-            options={bars.slice(0, 10)}
+            cacheOptions
+            defaultOptions={true}  // fetch initial list from GViz
+            loadOptions={barLoadOptions}
             value={formData.bar ? { label: formData.bar, value: formData.bar } : null}
-            onChange={selected => setFormData(prev => ({ ...prev, bar: selected ? selected.value : '' }))}
+            onChange={selected => {
+              setFormData(prev => ({ ...prev, bar: selected ? selected.value : '' }));
+              setSelectedBarTypes(selected?.meta?.barTypes || []);
+            }}
             placeholder="Start typing bar name..."
             isClearable
             isSearchable
+            noOptionsMessage={() => formData.city ? "No matching bars" : "Select a city first"}
             styles={{
               control: base => ({ ...base, backgroundColor: '#1f2937', borderColor: '#374151', color: 'white' }),
               input: base => ({ ...base, color: 'white' }),
               singleValue: base => ({ ...base, color: 'white' }),
-              menu: base => ({ ...base, backgroundColor: '#1f2937', color: 'white' })
+              menu: base => ({ ...base, backgroundColor: '#1f2937', color: 'white' }),
+              option: (provided, state) => ({
+                ...provided,
+                backgroundColor: state.isSelected
+                  ? '#4b5563'
+                  : state.isFocused
+                  ? '#374151'
+                  : 'transparent',
+                color: 'white'
+              })
             }}
           />
 
